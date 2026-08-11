@@ -13,6 +13,9 @@ param apiKey string
 @description('Public base URL for short links (e.g. https://azhk.in).')
 param baseUrl string = 'https://azhk.in'
 
+@description('Apex custom domain to bind to the Function App (e.g. azhk.in). Leave empty to skip custom-domain provisioning.')
+param customDomain string = 'azhk.in'
+
 @description('Table Storage table name.')
 param tableName string = 'AzShortLinks'
 
@@ -145,9 +148,90 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   }
 }
 
+// ── Custom Domain & Managed Certificate ──────────────────────────────────────
+// Pre-requisites (must be done before deploying this template):
+//   1. Add an ALIAS (ANAME) record at porkbun.com:
+//        Host: @  →  Value: ${functionAppName}.azurewebsites.net
+//   2. Add a CNAME record:
+//        Host: www  →  Value: ${functionAppName}.azurewebsites.net
+//   3. Add a TXT record for domain verification:
+//        Host: asuid  →  Value: <customDomainVerificationId>
+//        Host: asuid.www  →  Value: <customDomainVerificationId>
+//      Retrieve the id with:
+//        az functionapp show --resource-group <rg> --name <functionAppName> \
+//          --query customDomainVerificationId --output tsv
+
+// SNI hostname binding for the apex domain (azhk.in)
+resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
+  name: '${functionApp.name}/${customDomain}'
+  properties: {
+    hostNameType: 'Verified'
+    sslState: 'Disabled'  // certificate resource below enables SSL after cert provisioning
+    customHostNameDnsRecordType: 'A'
+  }
+}
+
+// SNI hostname binding for www subdomain (www.azhk.in)
+resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
+  name: '${functionApp.name}/www.${customDomain}'
+  properties: {
+    hostNameType: 'Verified'
+    sslState: 'Disabled'
+    customHostNameDnsRecordType: 'CName'
+  }
+  dependsOn: [apexHostBinding]
+}
+
+// App Service Managed Certificate for the apex domain
+resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
+  name: '${prefix}-cert-apex-${take(suffix, 8)}'
+  location: location
+  properties: {
+    serverFarmId: appServicePlan.id
+    canonicalName: customDomain
+  }
+  dependsOn: [apexHostBinding]
+}
+
+// App Service Managed Certificate for the www subdomain
+resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
+  name: '${prefix}-cert-www-${take(suffix, 8)}'
+  location: location
+  properties: {
+    serverFarmId: appServicePlan.id
+    canonicalName: 'www.${customDomain}'
+  }
+  dependsOn: [wwwHostBinding]
+}
+
+// Re-bind apex hostname with SNI SSL now that the certificate exists
+resource apexHostBindingSsl 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
+  name: '${functionApp.name}/${customDomain}'
+  properties: {
+    hostNameType: 'Verified'
+    sslState: 'SniEnabled'
+    thumbprint: apexCert.properties.thumbprint
+    customHostNameDnsRecordType: 'A'
+  }
+  dependsOn: [apexCert]
+}
+
+// Re-bind www hostname with SNI SSL now that the certificate exists
+resource wwwHostBindingSsl 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
+  name: '${functionApp.name}/www.${customDomain}'
+  properties: {
+    hostNameType: 'Verified'
+    sslState: 'SniEnabled'
+    thumbprint: wwwCert.properties.thumbprint
+    customHostNameDnsRecordType: 'CName'
+  }
+  dependsOn: [wwwCert]
+}
+
 // ── Outputs ───────────────────────────────────────────────────────────────────
 output functionAppName string = functionApp.name
 output functionAppHostname string = functionApp.properties.defaultHostName
+output customDomainVerificationId string = functionApp.properties.customDomainVerificationId
 output storageAccountName string = storageAccount.name
 output shortLinkTableName string = tableName
 output dashboardUrl string = 'https://${functionApp.properties.defaultHostName}/dashboard'

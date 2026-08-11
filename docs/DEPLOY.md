@@ -183,3 +183,82 @@ curl -L "https://$HOSTNAME/test"
 - **CORS updates** — rerun the Bicep deployment with updated `corsAllowedOrigins` / `localDevCorsAllowedOrigins` values whenever you add a new browser client origin.
 - **Monitoring** — Application Insights is pre-configured. View logs and metrics in the Azure portal under the Application Insights resource.
 - **Costs** — The Consumption plan charges only for actual invocations. For typical low-traffic URL shorteners, monthly costs are near zero within the free tier.
+
+---
+
+## 8  Custom Domain: azhk.in (Porkbun)
+
+The Bicep template automatically binds `azhk.in` and `www.azhk.in` to the Function App and provisions free App Service Managed Certificates for HTTPS.  
+**DNS records at Porkbun must be created first, before deploying (or re-deploying) the template.**
+
+### 8.1  Retrieve the domain verification ID
+
+```bash
+az functionapp show \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$FUNCTION_APP" \
+  --query customDomainVerificationId \
+  --output tsv
+```
+
+This prints a long hex string — call it `<VERIFICATION_ID>` below.
+
+### 8.2  Add DNS records at Porkbun
+
+Log in to [porkbun.com](https://porkbun.com) → **Domain Management** → `azhk.in` → **DNS**.
+
+| Type | Host | Value / Answer | TTL |
+|------|------|----------------|-----|
+| `ALIAS` (ANAME) | _(leave blank / `@`)_ | `<functionAppName>.azurewebsites.net` | 600 |
+| `CNAME` | `www` | `<functionAppName>.azurewebsites.net` | 600 |
+| `TXT` | `asuid` | `<VERIFICATION_ID>` | 600 |
+| `TXT` | `asuid.www` | `<VERIFICATION_ID>` | 600 |
+
+> **Note:** Porkbun supports `ALIAS` (also called ANAME) records for apex/root domains (`@`).  
+> Standard `CNAME` records cannot be used on the apex domain — use `ALIAS` instead.
+
+Substitute the actual function app hostname (output from step 3):
+
+```bash
+FUNCTION_APP_HOSTNAME=$(az deployment group show \
+  --resource-group "$RESOURCE_GROUP" \
+  --name main \
+  --query properties.outputs.functionAppHostname.value \
+  --output tsv)
+
+echo "ALIAS target: $FUNCTION_APP_HOSTNAME"
+```
+
+### 8.3  Deploy (or redeploy) the Bicep template
+
+Once DNS is propagated (usually a few minutes), run:
+
+```bash
+az deployment group create \
+  --resource-group "$RESOURCE_GROUP" \
+  --template-file infra/main.bicep \
+  --parameters infra/main.bicepparam \
+  --parameters apiKey="$API_KEY"
+```
+
+The template will:
+1. Bind `azhk.in` and `www.azhk.in` as custom hostnames on the Function App.
+2. Issue free App Service Managed Certificates for both hostnames.
+3. Re-bind both hostnames with SNI SSL enabled.
+
+### 8.4  Verify
+
+```bash
+curl -I https://azhk.in/api/health
+curl -I https://www.azhk.in/api/health
+```
+
+Both should return `HTTP/2 200` (or `503` if storage is not yet ready).
+
+### 8.5  Skip custom domain
+
+To deploy without binding a custom domain (e.g., to a staging slot), pass:
+
+```bash
+--parameters customDomain=''
+```
