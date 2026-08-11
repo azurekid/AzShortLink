@@ -39,9 +39,10 @@ az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
 
 The Bicep template in `infra/main.bicep` creates:
 - **Storage Account** — Table Storage backend + Azure WebJobs storage
+- **Storage Table** — Explicit `${tableName}` table for short-link data
 - **App Service Plan** — Consumption (Y1, Linux) for pay-per-use pricing
 - **Application Insights** — Telemetry and logging
-- **Function App** — Node 20, all app settings pre-configured
+- **Function App** — Node 20, app settings pre-configured, CORS origins configurable
 
 ### Deploy the template
 
@@ -52,11 +53,19 @@ az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
   --template-file infra/main.bicep \
   --parameters infra/main.bicepparam \
-  --parameters apiKey="$API_KEY" baseUrl="https://azhk.in"
+  --parameters apiKey="$API_KEY" \
+               baseUrl="https://azhk.in" \
+               corsAllowedOrigins='["https://azhk.in"]' \
+               localDevCorsAllowedOrigins='["http://localhost:3000","http://localhost:5173"]'
 
-# Save the API key — you will need it to call the API
+# Save the API key — you will need it to call the API and use /dashboard
 echo "SHORTLINK_API_KEY=$API_KEY"
 ```
+
+Notes:
+- `SHORTLINK_TABLE_NAME` is created by the template and also verified at runtime by the app.
+- The app does **not** use Azure Storage Queues today, so no queue resources are provisioned.
+- CORS is configured from `corsAllowedOrigins` + `localDevCorsAllowedOrigins`, which are merged and exposed as an output.
 
 Capture the function app name from the outputs:
 
@@ -144,13 +153,16 @@ HOSTNAME=$(az functionapp show \
   --query defaultHostName --output tsv)
 
 # Health check
-curl "https://$HOSTNAME/api/health"
+curl -i "https://$HOSTNAME/api/health"
 
 # Create a test short link
 curl -X POST "https://$HOSTNAME/api/shorten" \
   -H "x-api-key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com", "uniqueValue": "test"}'
+
+# Open the browser dashboard (paste the same API key into the UI)
+echo "https://$HOSTNAME/dashboard"
 
 # Follow the redirect
 curl -L "https://$HOSTNAME/test"
@@ -168,5 +180,6 @@ curl -L "https://$HOSTNAME/test"
     --name "$FUNCTION_APP" \
     --settings SHORTLINK_API_KEY="<new-key>"
   ```
+- **CORS updates** — rerun the Bicep deployment with updated `corsAllowedOrigins` / `localDevCorsAllowedOrigins` values whenever you add a new browser client origin.
 - **Monitoring** — Application Insights is pre-configured. View logs and metrics in the Azure portal under the Application Insights resource.
 - **Costs** — The Consumption plan charges only for actual invocations. For typical low-traffic URL shorteners, monthly costs are near zero within the free tier.

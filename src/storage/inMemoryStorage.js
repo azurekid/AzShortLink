@@ -1,8 +1,9 @@
 'use strict';
 
 class InMemoryStorage {
-  constructor() {
+  constructor(options = {}) {
     this.items = new Map();
+    this.tableName = options.tableName || '';
   }
 
   async createLink({ code, targetUrl, createdAt }) {
@@ -47,6 +48,22 @@ class InMemoryStorage {
 
   async ping() {
     return true;
+  }
+
+  async getHealthDetails() {
+    return {
+      type: 'in-memory',
+      table: {
+        name: this.tableName,
+        status: 'not-configured',
+        message: 'Azure Storage is not configured, so link data is stored in-memory only.'
+      },
+      queue: {
+        status: 'not-required',
+        names: [],
+        message: 'This app does not use Azure Storage Queues.'
+      }
+    };
   }
 }
 

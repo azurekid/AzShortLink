@@ -11,3 +11,10 @@ param prefix = 'azsl'
 // param location    = 'westeurope'
 // param baseUrl     = 'https://azhk.in'
 // param tableName   = 'AzShortLinks'
+// param corsAllowedOrigins = [
+//   'https://azhk.in'
+// ]
+// param localDevCorsAllowedOrigins = [
+//   'http://localhost:3000'
+//   'http://localhost:5173'
+// ]

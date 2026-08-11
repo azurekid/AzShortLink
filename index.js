@@ -9,6 +9,15 @@ const { renderDashboard } = require('./src/dashboard');
 const config = getConfig();
 const servicePromise = createStorage(config).then((storage) => new ShortLinkService(storage, { baseUrl: config.baseUrl }));
 
+function configurationErrorResponse() {
+  return {
+    status: 503,
+    jsonBody: {
+      error: 'SHORTLINK_API_KEY is not configured. Set the app setting and restart the Function App.'
+    }
+  };
+}
+
 function getApiKeyFromRequest(request) {
   const authHeader = request.headers.get('authorization') || '';
   if (authHeader.toLowerCase().startsWith('bearer ')) {
@@ -35,17 +44,45 @@ function unauthorizedResponse() {
   };
 }
 
+function isStorageUnavailableError(err) {
+  return err && err.code === 'STORAGE_UNAVAILABLE';
+}
+
+function unavailableStorageResponse(err) {
+  return {
+    status: 503,
+    jsonBody: {
+      error: err.message
+    }
+  };
+}
+
 app.http('shortenUrl', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'api/shorten',
   handler: async (request) => {
+    if (!config.apiKey) {
+      return configurationErrorResponse();
+    }
+
     if (!isAuthorized(request)) {
       return unauthorizedResponse();
     }
 
     const service = await servicePromise;
-    const payload = await request.json();
+    let payload;
+
+    try {
+      payload = await request.json();
+    } catch {
+      return {
+        status: 400,
+        jsonBody: {
+          error: 'Request body must be valid JSON.'
+        }
+      };
+    }
 
     try {
       const result = await service.createShortLink(payload);
@@ -60,6 +97,9 @@ app.http('shortenUrl', {
       if (err.code === 'INVALID_URL' || err.code === 'INVALID_ALIAS') {
         return { status: 400, jsonBody: { error: err.message } };
       }
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
 
       return { status: 500, jsonBody: { error: 'Unable to create short URL.' } };
     }
@@ -73,7 +113,17 @@ app.http('redirectUrl', {
   handler: async (request) => {
     const service = await servicePromise;
     const code = request.params.code;
-    const result = await service.resolveShortLink(code);
+    let result;
+
+    try {
+      result = await service.resolveShortLink(code);
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      throw err;
+    }
 
     if (!result) {
       return {
@@ -99,13 +149,28 @@ app.http('getStats', {
   authLevel: 'anonymous',
   route: 'api/stats/{code?}',
   handler: async (request) => {
+    if (!config.apiKey) {
+      return configurationErrorResponse();
+    }
+
     if (!isAuthorized(request)) {
       return unauthorizedResponse();
     }
 
     const service = await servicePromise;
     const code = request.params.code;
-    const links = await service.getStats(code);
+    let links;
+
+    try {
+      links = await service.getStats(code);
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      throw err;
+    }
+
     return {
       status: 200,
       jsonBody: {
@@ -121,19 +186,15 @@ app.http('dashboard', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'dashboard',
-  handler: async (request) => {
-    if (!isAuthorized(request)) {
-      return unauthorizedResponse();
-    }
-
-    const service = await servicePromise;
-    const links = await service.getStats('');
+  handler: async () => {
     return {
       status: 200,
       headers: {
         'content-type': 'text/html; charset=utf-8'
       },
-      body: renderDashboard(config.baseUrl, links)
+      body: renderDashboard(config.baseUrl, {
+        apiKeyConfigured: Boolean(config.apiKey)
+      })
     };
   }
 });
@@ -144,9 +205,28 @@ app.http('health', {
   route: 'api/health',
   handler: async () => {
     const service = await servicePromise;
+    const health = await service.getHealth();
+    const missingAppSettings = [];
+
+    if (!config.apiKey) {
+      missingAppSettings.push('SHORTLINK_API_KEY');
+    }
+
+    if (!config.storageConnectionString) {
+      missingAppSettings.push('AzureWebJobsStorage/AZURE_STORAGE_CONNECTION_STRING');
+    }
+
     return {
-      status: 200,
-      jsonBody: await service.getHealth()
+      status: health.status === 'healthy' && missingAppSettings.length === 0 ? 200 : 503,
+      jsonBody: {
+        ...health,
+        config: {
+          baseUrl: config.baseUrl,
+          apiKeyConfigured: Boolean(config.apiKey),
+          storageConnectionConfigured: Boolean(config.storageConnectionString),
+          missingAppSettings
+        }
+      }
     };
   }
 });

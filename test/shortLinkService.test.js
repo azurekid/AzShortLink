@@ -76,3 +76,62 @@ test('resolves short link and increments redirect stats', async () => {
   assert.equal(stats[0].redirectCount, 1);
   assert.equal(stats[0].lastAccessedAt, '2026-01-01T00:05:00.000Z');
 });
+
+test('reports detailed healthy storage diagnostics', async () => {
+  const storage = {
+    async getHealthDetails() {
+      return {
+        type: 'table',
+        table: {
+          name: 'AzShortLinks',
+          status: 'up',
+          message: 'Azure Table Storage is reachable.'
+        },
+        queue: {
+          status: 'not-required',
+          names: [],
+          message: 'This app does not use Azure Storage Queues.'
+        }
+      };
+    }
+  };
+
+  const service = new ShortLinkService(storage, {
+    now: () => '2026-01-01T00:05:00.000Z'
+  });
+
+  const health = await service.getHealth();
+
+  assert.equal(health.status, 'healthy');
+  assert.equal(health.storage.table.name, 'AzShortLinks');
+  assert.equal(health.storage.queue.status, 'not-required');
+});
+
+test('reports degraded storage diagnostics when storage is unavailable', async () => {
+  const storage = {
+    async getHealthDetails() {
+      return {
+        type: 'unavailable',
+        table: {
+          name: 'AzShortLinks',
+          status: 'down',
+          message: 'Storage initialization failed.'
+        },
+        queue: {
+          status: 'not-required',
+          names: [],
+          message: 'This app does not use Azure Storage Queues.'
+        }
+      };
+    }
+  };
+
+  const service = new ShortLinkService(storage, {
+    now: () => '2026-01-01T00:05:00.000Z'
+  });
+
+  const health = await service.getHealth();
+
+  assert.equal(health.status, 'degraded');
+  assert.equal(health.storage.table.status, 'down');
+});

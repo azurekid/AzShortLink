@@ -1,0 +1,225 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "157362258841085316"
+    }
+  },
+  "parameters": {
+    "prefix": {
+      "type": "string",
+      "defaultValue": "azsl",
+      "minLength": 2,
+      "maxLength": 10,
+      "metadata": {
+        "description": "Base name used for all resources (2-10 lowercase alphanumeric chars)."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources."
+      }
+    },
+    "apiKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "API key for the shortlink service (required, keep secret)."
+      }
+    },
+    "baseUrl": {
+      "type": "string",
+      "defaultValue": "https://azhk.in",
+      "metadata": {
+        "description": "Public base URL for short links (e.g. https://azhk.in)."
+      }
+    },
+    "tableName": {
+      "type": "string",
+      "defaultValue": "AzShortLinks",
+      "metadata": {
+        "description": "Table Storage table name."
+      }
+    },
+    "corsAllowedOrigins": {
+      "type": "array",
+      "defaultValue": [
+        "[parameters('baseUrl')]"
+      ],
+      "metadata": {
+        "description": "Allowed production/browser origins for CORS (include the deployed UI origin)."
+      }
+    },
+    "localDevCorsAllowedOrigins": {
+      "type": "array",
+      "defaultValue": [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:7071"
+      ],
+      "metadata": {
+        "description": "Allowed local development origins for CORS."
+      }
+    }
+  },
+  "variables": {
+    "suffix": "[uniqueString(resourceGroup().id, parameters('prefix'))]",
+    "storageAccountName": "[toLower(format('{0}st{1}', parameters('prefix'), take(variables('suffix'), 8)))]",
+    "appServicePlanName": "[format('{0}-plan-{1}', parameters('prefix'), take(variables('suffix'), 8))]",
+    "functionAppName": "[format('{0}-func-{1}', parameters('prefix'), take(variables('suffix'), 8))]",
+    "appInsightsName": "[format('{0}-ai-{1}', parameters('prefix'), take(variables('suffix'), 8))]",
+    "effectiveCorsOrigins": "[union(parameters('corsAllowedOrigins'), parameters('localDevCorsAllowedOrigins'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-01-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "supportsHttpsTrafficOnly": true,
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}/default/{1}', variables('storageAccountName'), parameters('tableName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('appInsightsName')]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "RetentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-01-01",
+      "name": "[variables('appServicePlanName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Y1",
+        "tier": "Dynamic"
+      },
+      "kind": "linux",
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-01-01",
+      "name": "[variables('functionAppName')]",
+      "location": "[parameters('location')]",
+      "kind": "functionapp,linux",
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "NODE|20",
+          "functionAppScaleLimit": 200,
+          "cors": {
+            "allowedOrigins": "[variables('effectiveCorsOrigins')]",
+            "supportCredentials": false
+          },
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-01-01').keys[0].value, environment().suffixes.storage)]"
+            },
+            {
+              "name": "AZURE_STORAGE_CONNECTION_STRING",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-01-01').keys[0].value, environment().suffixes.storage)]"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "node"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "WEBSITE_RUN_FROM_PACKAGE",
+              "value": "1"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "SHORTLINK_API_KEY",
+              "value": "[parameters('apiKey')]"
+            },
+            {
+              "name": "PUBLIC_BASE_URL",
+              "value": "[parameters('baseUrl')]"
+            },
+            {
+              "name": "SHORTLINK_TABLE_NAME",
+              "value": "[parameters('tableName')]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "functionAppName": {
+      "type": "string",
+      "value": "[variables('functionAppName')]"
+    },
+    "functionAppHostname": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-01-01').defaultHostName]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageAccountName')]"
+    },
+    "shortLinkTableName": {
+      "type": "string",
+      "value": "[parameters('tableName')]"
+    },
+    "dashboardUrl": {
+      "type": "string",
+      "value": "[format('https://{0}/dashboard', reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-01-01').defaultHostName)]"
+    },
+    "healthUrl": {
+      "type": "string",
+      "value": "[format('https://{0}/api/health', reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-01-01').defaultHostName)]"
+    },
+    "allowedCorsOrigins": {
+      "type": "array",
+      "value": "[variables('effectiveCorsOrigins')]"
+    }
+  }
+}
