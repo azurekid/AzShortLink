@@ -9,7 +9,8 @@ param apiKey = readEnvironmentVariable('SHORTLINK_API_KEY', '')
 // ── Optional overrides ────────────────────────────────────────────────────────
 param prefix = 'azsl'
 // param location    = 'westeurope'
-// param baseUrl     = 'https://azhk.in'
+param baseUrl     = 'https://azhk.in'
+param customDomain = 'azhk.in'
 // param tableName   = 'AzShortLinks'
 // param corsAllowedOrigins = [
 //   'https://azhk.in'
