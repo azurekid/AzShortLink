@@ -5,14 +5,22 @@ const { TableClient } = require('@azure/data-tables');
 const PARTITION_KEY = 'LINK';
 
 class TableStorage {
-  constructor(client) {
+  constructor(client, options = {}) {
     this.client = client;
+    this.tableName = options.tableName || '';
   }
 
   static async create(connectionString, tableName) {
     const client = TableClient.fromConnectionString(connectionString, tableName);
-    await client.createTable();
-    return new TableStorage(client);
+    try {
+      await client.createTable();
+    } catch (err) {
+      if (!err || (err.statusCode !== 409 && err.code !== 'TableAlreadyExists')) {
+        throw err;
+      }
+    }
+
+    return new TableStorage(client, { tableName });
   }
 
   async createLink({ code, targetUrl, createdAt }) {
@@ -93,6 +101,25 @@ class TableStorage {
     } catch {
       return false;
     }
+  }
+
+  async getHealthDetails() {
+    const healthy = await this.ping();
+    return {
+      type: 'table',
+      table: {
+        name: this.tableName,
+        status: healthy ? 'up' : 'down',
+        message: healthy
+          ? 'Azure Table Storage is reachable.'
+          : 'Azure Table Storage check failed. Verify AzureWebJobsStorage/AZURE_STORAGE_CONNECTION_STRING and data-plane access.'
+      },
+      queue: {
+        status: 'not-required',
+        names: [],
+        message: 'This app does not use Azure Storage Queues.'
+      }
+    };
   }
 }
 

@@ -2,16 +2,22 @@
 
 const { InMemoryStorage } = require('./inMemoryStorage');
 const { TableStorage } = require('./tableStorage');
+const { UnavailableStorage } = require('./unavailableStorage');
 
 async function createStorage(config) {
   if (!config.storageConnectionString) {
-    return new InMemoryStorage();
+    console.warn('[storage] Azure Storage connection string missing; using in-memory storage.');
+    return new InMemoryStorage({ tableName: config.tableName });
   }
 
   try {
     return await TableStorage.create(config.storageConnectionString, config.tableName);
-  } catch {
-    return new InMemoryStorage();
+  } catch (err) {
+    console.error('[storage] Failed to initialize Azure Table Storage.', err);
+    return new UnavailableStorage({
+      tableName: config.tableName,
+      reason: err
+    });
   }
 }
 

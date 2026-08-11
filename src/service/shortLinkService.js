@@ -108,10 +108,25 @@ class ShortLinkService {
   }
 
   async getHealth() {
-    const healthy = await this.storage.ping();
+    const details = this.storage.getHealthDetails
+      ? await this.storage.getHealthDetails()
+      : {
+          type: 'unknown',
+          table: {
+            name: '',
+            status: (await this.storage.ping()) ? 'up' : 'down',
+            message: 'Health details unavailable.'
+          },
+          queue: {
+            status: 'unknown',
+            names: [],
+            message: 'Health details unavailable.'
+          }
+        };
+
     return {
-      status: healthy ? 'healthy' : 'degraded',
-      storage: healthy ? 'up' : 'down',
+      status: details.table.status === 'up' ? 'healthy' : 'degraded',
+      storage: details,
       checkedAt: this.now()
     };
   }
