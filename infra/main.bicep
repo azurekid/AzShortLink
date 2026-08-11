@@ -200,17 +200,17 @@ resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDom
 }
 
 // App Service Managed Certificate for the www subdomain
-resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
-  name: '${prefix}-cert-www-${take(suffix, 8)}'
-  location: location
-  dependsOn: [
-    // wwwHostBinding
-  ]
-  properties: {
-    serverFarmId: appServicePlan.id
-    canonicalName: 'www.${customDomain}'
-  }
-}
+// resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
+//   name: '${prefix}-cert-www-${take(suffix, 8)}'
+//   location: location
+//   dependsOn: [
+//     // wwwHostBinding
+//   ]
+//   properties: {
+//     serverFarmId: appServicePlan.id
+//     canonicalName: 'www.${customDomain}'
+//   }
+// }
 
 // Re-bind hostnames with SNI SSL after certificate provisioning.
 module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
