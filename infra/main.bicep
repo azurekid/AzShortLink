@@ -203,44 +203,15 @@ resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDoma
   }
 }
 
-// Re-bind hostnames with SNI SSL in a nested deployment after certificate provisioning.
-resource hostBindingsSsl 'Microsoft.Resources/deployments@2022-09-01' = if (!empty(customDomain)) {
+// Re-bind hostnames with SNI SSL after certificate provisioning.
+module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
   name: '${prefix}-hostbindings-ssl-${take(suffix, 8)}'
-  properties: {
-    mode: 'Incremental'
-    template: {
-      '$schema': 'https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#'
-      contentVersion: '1.0.0.0'
-      resources: [
-        {
-          type: 'Microsoft.Web/sites/hostNameBindings'
-          apiVersion: '2023-01-01'
-          name: '${functionApp.name}/${customDomain}'
-          properties: {
-            hostNameType: 'Verified'
-            sslState: 'SniEnabled'
-            thumbprint: apexCert!.properties.thumbprint
-            customHostNameDnsRecordType: 'A'
-          }
-        }
-        {
-          type: 'Microsoft.Web/sites/hostNameBindings'
-          apiVersion: '2023-01-01'
-          name: '${functionApp.name}/www.${customDomain}'
-          properties: {
-            hostNameType: 'Verified'
-            sslState: 'SniEnabled'
-            thumbprint: wwwCert!.properties.thumbprint
-            customHostNameDnsRecordType: 'CName'
-          }
-        }
-      ]
-    }
+  params: {
+    functionAppName: functionApp.name
+    customDomain: customDomain
+    apexThumbprint: apexCert!.properties.thumbprint
+    wwwThumbprint: wwwCert!.properties.thumbprint
   }
-  dependsOn: [
-    apexCert
-    wwwCert
-  ]
 }
 
 // ── Outputs ───────────────────────────────────────────────────────────────────
