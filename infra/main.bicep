@@ -172,19 +172,19 @@ resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if 
   }
 }
 
-// SNI hostname binding for www subdomain (www.azhk.in)
-resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
-  name: 'www.${customDomain}'
-  parent: functionApp
-  dependsOn: [
-    apexHostBinding
-  ]
-  properties: {
-    hostNameType: 'Verified'
-    sslState: 'Disabled'
-    customHostNameDnsRecordType: 'CName'
-  }
-}
+// // SNI hostname binding for www subdomain (www.azhk.in)
+// resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
+//   name: 'www.${customDomain}'
+//   parent: functionApp
+//   dependsOn: [
+//     apexHostBinding
+//   ]
+//   properties: {
+//     hostNameType: 'Verified'
+//     sslState: 'Disabled'
+//     customHostNameDnsRecordType: 'CName'
+//   }
+// }
 
 // App Service Managed Certificate for the apex domain
 resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
@@ -204,7 +204,7 @@ resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDoma
   name: '${prefix}-cert-www-${take(suffix, 8)}'
   location: location
   dependsOn: [
-    wwwHostBinding
+    // wwwHostBinding
   ]
   properties: {
     serverFarmId: appServicePlan.id
@@ -219,7 +219,7 @@ module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDoma
     functionAppName: functionApp.name
     customDomain: customDomain
     apexThumbprint: apexCert!.properties.thumbprint
-    wwwThumbprint: wwwCert!.properties.thumbprint
+    // wwwThumbprint: wwwCert!.properties.thumbprint
   }
 }
 
