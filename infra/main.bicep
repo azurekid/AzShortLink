@@ -35,10 +35,10 @@ param localDevCorsAllowedOrigins array = [
 
 // ── Unique suffix so resource names don't collide across deployments ──────────
 var suffix = uniqueString(resourceGroup().id, prefix)
-var storageAccountName = toLower('${prefix}st${take(suffix, 8)}')
-var appServicePlanName = '${prefix}-plan-${take(suffix, 8)}'
-var functionAppName = '${prefix}-func-${take(suffix, 8)}'
-var appInsightsName = '${prefix}-ai-${take(suffix, 8)}'
+var storageAccountName = toLower('st${prefix}${take(suffix, 8)}')
+var appServicePlanName = 'asp-${prefix}-${take(suffix, 8)}'
+var functionAppName = 'func-${prefix}-${take(suffix, 8)}'
+var appInsightsName = 'appi-${prefix}-${take(suffix, 8)}'
 
 // ── Storage Account ───────────────────────────────────────────────────────────
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
@@ -96,7 +96,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
     serverFarmId: appServicePlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'NODE|20'
+      linuxFxVersion: 'NODE|24'
       functionAppScaleLimit: 200
       cors: {
         allowedOrigins: effectiveCorsOrigins
@@ -186,18 +186,18 @@ resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if 
 //   }
 // }
 
-// App Service Managed Certificate for the apex domain
-resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
-  name: '${prefix}-cert-apex-${take(suffix, 8)}'
-  location: location
-  dependsOn: [
-    apexHostBinding
-  ]
-  properties: {
-    serverFarmId: appServicePlan.id
-    canonicalName: customDomain
-  }
-}
+// // App Service Managed Certificate for the apex domain
+// resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
+//   name: '${prefix}-cert-apex-${take(suffix, 8)}'
+//   location: location
+//   dependsOn: [
+//     apexHostBinding
+//   ]
+//   properties: {
+//     serverFarmId: appServicePlan.id
+//     canonicalName: customDomain
+//   }
+// }
 
 // App Service Managed Certificate for the www subdomain
 // resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
@@ -212,16 +212,16 @@ resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDom
 //   }
 // }
 
-// Re-bind hostnames with SNI SSL after certificate provisioning.
-module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
-  name: '${prefix}-hostbindings-ssl-${take(suffix, 8)}'
-  params: {
-    functionAppName: functionApp.name
-    customDomain: customDomain
-    apexThumbprint: apexCert!.properties.thumbprint
-    // wwwThumbprint: wwwCert!.properties.thumbprint
-  }
-}
+// // Re-bind hostnames with SNI SSL after certificate provisioning.
+// module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
+//   name: '${prefix}-hostbindings-ssl-${take(suffix, 8)}'
+//   params: {
+//     functionAppName: functionApp.name
+//     customDomain: customDomain
+//     apexThumbprint: apexCert!.properties.thumbprint
+//     // wwwThumbprint: wwwCert!.properties.thumbprint
+//   }
+// }
 
 // ── Outputs ───────────────────────────────────────────────────────────────────
 output functionAppName string = functionApp.name
