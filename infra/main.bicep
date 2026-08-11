@@ -163,7 +163,8 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
 
 // SNI hostname binding for the apex domain (azhk.in)
 resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
-  name: '${functionApp.name}/${customDomain}'
+  name: customDomain
+  parent: functionApp
   properties: {
     hostNameType: 'Verified'
     sslState: 'Disabled'  // certificate resource below enables SSL after cert provisioning
@@ -173,13 +174,13 @@ resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if 
 
 // SNI hostname binding for www subdomain (www.azhk.in)
 resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
-  name: '${functionApp.name}/www.${customDomain}'
+  name: 'www.${customDomain}'
+  parent: functionApp
   properties: {
     hostNameType: 'Verified'
     sslState: 'Disabled'
     customHostNameDnsRecordType: 'CName'
   }
-  dependsOn: [apexHostBinding]
 }
 
 // App Service Managed Certificate for the apex domain
@@ -190,7 +191,6 @@ resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDom
     serverFarmId: appServicePlan.id
     canonicalName: customDomain
   }
-  dependsOn: [apexHostBinding]
 }
 
 // App Service Managed Certificate for the www subdomain
@@ -201,31 +201,17 @@ resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDoma
     serverFarmId: appServicePlan.id
     canonicalName: 'www.${customDomain}'
   }
-  dependsOn: [wwwHostBinding]
 }
 
-// Re-bind apex hostname with SNI SSL now that the certificate exists
-resource apexHostBindingSsl 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
-  name: '${functionApp.name}/${customDomain}'
-  properties: {
-    hostNameType: 'Verified'
-    sslState: 'SniEnabled'
-    thumbprint: apexCert.properties.thumbprint
-    customHostNameDnsRecordType: 'A'
+// Re-bind hostnames with SNI SSL after certificate provisioning.
+module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
+  name: '${prefix}-hostbindings-ssl-${take(suffix, 8)}'
+  params: {
+    functionAppName: functionApp.name
+    customDomain: customDomain
+    apexThumbprint: apexCert!.properties.thumbprint
+    wwwThumbprint: wwwCert!.properties.thumbprint
   }
-  dependsOn: [apexCert]
-}
-
-// Re-bind www hostname with SNI SSL now that the certificate exists
-resource wwwHostBindingSsl 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
-  name: '${functionApp.name}/www.${customDomain}'
-  properties: {
-    hostNameType: 'Verified'
-    sslState: 'SniEnabled'
-    thumbprint: wwwCert.properties.thumbprint
-    customHostNameDnsRecordType: 'CName'
-  }
-  dependsOn: [wwwCert]
 }
 
 // ── Outputs ───────────────────────────────────────────────────────────────────
