@@ -176,6 +176,9 @@ resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if 
 resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
   name: 'www.${customDomain}'
   parent: functionApp
+  dependsOn: [
+    apexHostBinding
+  ]
   properties: {
     hostNameType: 'Verified'
     sslState: 'Disabled'
@@ -187,6 +190,9 @@ resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (
 resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
   name: '${prefix}-cert-apex-${take(suffix, 8)}'
   location: location
+  dependsOn: [
+    apexHostBinding
+  ]
   properties: {
     serverFarmId: appServicePlan.id
     canonicalName: customDomain
@@ -197,6 +203,9 @@ resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDom
 resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
   name: '${prefix}-cert-www-${take(suffix, 8)}'
   location: location
+  dependsOn: [
+    wwwHostBinding
+  ]
   properties: {
     serverFarmId: appServicePlan.id
     canonicalName: 'www.${customDomain}'
@@ -206,6 +215,10 @@ resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDoma
 // Re-bind hostnames with SNI SSL after certificate provisioning.
 module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
   name: '${prefix}-hostbindings-ssl-${take(suffix, 8)}'
+  dependsOn: [
+    apexCert
+    wwwCert
+  ]
   params: {
     functionAppName: functionApp.name
     customDomain: customDomain

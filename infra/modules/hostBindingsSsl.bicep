@@ -15,6 +15,9 @@ resource apexHostBindingSsl 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = 
 
 resource wwwHostBindingSsl 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = {
   name: '${functionAppName}/www.${customDomain}'
+  dependsOn: [
+    apexHostBindingSsl
+  ]
   properties: {
     hostNameType: 'Verified'
     sslState: 'SniEnabled'
