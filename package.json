@@ -1,0 +1,17 @@
+{
+  "name": "azshortlink",
+  "version": "1.0.0",
+  "description": "Azure Function based URL shortener for azhk.in",
+  "main": "index.js",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@azure/data-tables": "^13.3.1",
+    "@azure/functions": "^4.7.1"
+  }
+}
