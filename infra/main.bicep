@@ -162,71 +162,71 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
 //          --query customDomainVerificationId --output tsv
 
 // SNI hostname binding for the apex domain (azhk.in)
-// resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
-//   name: customDomain
-//   parent: functionApp
-//   properties: {
-//     hostNameType: 'Verified'
-//     sslState: 'Disabled'  // certificate resource below enables SSL after cert provisioning
-//     customHostNameDnsRecordType: 'CName'  // Consumption (Y1) plan doesn't support A-record custom domains
-//   }
-// }
+resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
+  name: customDomain
+  parent: functionApp
+  properties: {
+    hostNameType: 'Verified'
+    sslState: 'Disabled'  // certificate resource below enables SSL after cert provisioning
+    customHostNameDnsRecordType: 'CName'  // Consumption (Y1) plan doesn't support A-record custom domains
+  }
+}
 
-// // SNI hostname binding for www subdomain (www.azhk.in)
-// resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
-//   name: 'www.${customDomain}'
-//   parent: functionApp
-//   dependsOn: [
-//     apexHostBinding
-//   ]
-//   properties: {
-//     hostNameType: 'Verified'
-//     sslState: 'Disabled'
-//     customHostNameDnsRecordType: 'CName'
-//   }
-// }
+// SNI hostname binding for www subdomain (www.azhk.in)
+resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
+  name: 'www.${customDomain}'
+  parent: functionApp
+  dependsOn: [
+    apexHostBinding
+  ]
+  properties: {
+    hostNameType: 'Verified'
+    sslState: 'Disabled'
+    customHostNameDnsRecordType: 'CName'
+  }
+}
 
-// // App Service Managed Certificate for the apex domain
-// resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
-//   name: '${prefix}-cert-apex-${take(suffix, 8)}'
-//   location: location
-//   dependsOn: [
-//     apexHostBinding
-//   ]
-//   properties: {
-//     serverFarmId: appServicePlan.id
-//     canonicalName: customDomain
-//   }
-// }
+// App Service Managed Certificate for the apex domain
+resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
+  name: '${prefix}-cert-apex-${take(suffix, 8)}'
+  location: location
+  dependsOn: [
+    apexHostBinding
+  ]
+  properties: {
+    serverFarmId: appServicePlan.id
+    canonicalName: customDomain
+  }
+}
 
 // App Service Managed Certificate for the www subdomain
-// resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
-//   name: '${prefix}-cert-www-${take(suffix, 8)}'
-//   location: location
-//   dependsOn: [
-//     // wwwHostBinding
-//   ]
-//   properties: {
-//     serverFarmId: appServicePlan.id
-//     canonicalName: 'www.${customDomain}'
-//   }
-// }
+resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
+  name: '${prefix}-cert-www-${take(suffix, 8)}'
+  location: location
+  dependsOn: [
+    wwwHostBinding
+  ]
+  properties: {
+    serverFarmId: appServicePlan.id
+    canonicalName: 'www.${customDomain}'
+  }
+}
 
-// // Re-bind hostnames with SNI SSL after certificate provisioning.
-// module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
-//   name: '${prefix}-hostbindings-ssl-${take(suffix, 8)}'
-//   params: {
-//     functionAppName: functionApp.name
-//     customDomain: customDomain
-//     apexThumbprint: apexCert!.properties.thumbprint
-//     // wwwThumbprint: wwwCert!.properties.thumbprint
-//   }
-// }
+// Re-bind hostnames with SNI SSL after certificate provisioning.
+module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
+  name: '${prefix}-hostbindings-ssl-${take(suffix, 8)}'
+  params: {
+    functionAppName: functionApp.name
+    customDomain: customDomain
+    apexThumbprint: apexCert!.properties.thumbprint
+    wwwThumbprint: wwwCert!.properties.thumbprint
+  }
+}
 
 // ── Outputs ───────────────────────────────────────────────────────────────────
 output functionAppName string = functionApp.name
 output functionAppHostname string = functionApp.properties.defaultHostName
-// output customDomainVerificationId string = functionApp.properties.customDomainVerificationId
+output customDomainVerificationId string = functionApp.properties.customDomainVerificationId
 output storageAccountName string = storageAccount.name
 output shortLinkTableName string = tableName
 output dashboardUrl string = 'https://${functionApp.properties.defaultHostName}/dashboard'
