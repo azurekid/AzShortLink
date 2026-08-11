@@ -215,10 +215,6 @@ resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDoma
 // Re-bind hostnames with SNI SSL after certificate provisioning.
 module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
   name: '${prefix}-hostbindings-ssl-${take(suffix, 8)}'
-  dependsOn: [
-    apexCert
-    wwwCert
-  ]
   params: {
     functionAppName: functionApp.name
     customDomain: customDomain
