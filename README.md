@@ -21,7 +21,7 @@ Set these app settings in Azure Function App:
 - `AZURE_STORAGE_CONNECTION_STRING` (or `AzureWebJobsStorage`)
 - `SHORTLINK_TABLE_NAME` (default: `AzShortLinks`)
 
-You can use `/home/runner/work/AzShortLink/AzShortLink/local.settings.sample.json` as a template for local settings.
+You can use `local.settings.sample.json` as a template for local settings.
 
 ## API
 
@@ -58,6 +58,22 @@ Both require API key authentication.
 ### Health
 
 `GET /api/health` returns storage and service health.
+
+## Deploy to Azure
+
+Provision infrastructure and deploy with a single Bicep template + GitHub Actions pipeline.
+See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the full step-by-step guide.
+
+Quick start:
+
+```bash
+az group create --name rg-azshortlink --location westeurope
+az deployment group create \
+  --resource-group rg-azshortlink \
+  --template-file infra/main.bicep \
+  --parameters infra/main.bicepparam \
+  --parameters apiKey="$(openssl rand -hex 32)"
+```
 
 ## Run tests
 
