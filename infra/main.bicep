@@ -162,15 +162,15 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
 //          --query customDomainVerificationId --output tsv
 
 // SNI hostname binding for the apex domain (azhk.in)
-resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
-  name: customDomain
-  parent: functionApp
-  properties: {
-    hostNameType: 'Verified'
-    sslState: 'Disabled'  // certificate resource below enables SSL after cert provisioning
-    customHostNameDnsRecordType: 'CName'  // Consumption (Y1) plan doesn't support A-record custom domains
-  }
-}
+// resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
+//   name: customDomain
+//   parent: functionApp
+//   properties: {
+//     hostNameType: 'Verified'
+//     sslState: 'Disabled'  // certificate resource below enables SSL after cert provisioning
+//     customHostNameDnsRecordType: 'CName'  // Consumption (Y1) plan doesn't support A-record custom domains
+//   }
+// }
 
 // // SNI hostname binding for www subdomain (www.azhk.in)
 // resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (!empty(customDomain)) {
@@ -226,7 +226,7 @@ resource apexHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if 
 // ── Outputs ───────────────────────────────────────────────────────────────────
 output functionAppName string = functionApp.name
 output functionAppHostname string = functionApp.properties.defaultHostName
-output customDomainVerificationId string = functionApp.properties.customDomainVerificationId
+// output customDomainVerificationId string = functionApp.properties.customDomainVerificationId
 output storageAccountName string = storageAccount.name
 output shortLinkTableName string = tableName
 output dashboardUrl string = 'https://${functionApp.properties.defaultHostName}/dashboard'
