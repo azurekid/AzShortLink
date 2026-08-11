@@ -9,7 +9,7 @@ resource apexHostBindingSsl 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = 
     hostNameType: 'Verified'
     sslState: 'SniEnabled'
     thumbprint: apexThumbprint
-    customHostNameDnsRecordType: 'A'
+    customHostNameDnsRecordType: 'CName'  // Consumption (Y1) plan doesn't support A-record custom domains
   }
 }
 
