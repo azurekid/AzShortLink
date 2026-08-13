@@ -1,6 +1,7 @@
 'use strict';
 
 const { app } = require('@azure/functions');
+const bcrypt = require('bcryptjs');
 const { getConfig } = require('./src/config');
 const { createStorage } = require('./src/storage');
 const { ShortLinkService } = require('./src/service/shortLinkService');
@@ -12,11 +13,13 @@ const {
   buildSessionCookie,
   buildClearedSessionCookie,
   isDashboardSessionValid,
+  getSessionIdentity,
   timingSafeEqualString
 } = require('./src/auth');
 
 const config = getConfig();
-const servicePromise = createStorage(config).then((storage) => new ShortLinkService(storage, { baseUrl: config.baseUrl }));
+const storagePromise = createStorage(config);
+const servicePromise = storagePromise.then((storage) => new ShortLinkService(storage, { baseUrl: config.baseUrl }));
 const SECURITY_HEADERS = {
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
@@ -43,12 +46,22 @@ function getApiKeyFromRequest(request) {
   return (request.headers.get('x-api-key') || '').trim();
 }
 
-function isAuthorized(request) {
-  if (!config.apiKey) {
-    return false;
+function getRequestIdentity(request) {
+  const sessionIdentity = getSessionIdentity(request, config);
+  if (sessionIdentity) {
+    return sessionIdentity;
   }
 
-  return timingSafeEqualString(getApiKeyFromRequest(request), config.apiKey);
+  if (config.apiKey && timingSafeEqualString(getApiKeyFromRequest(request), config.apiKey)) {
+    return {
+      id: config.dashboardUsername.trim().toLowerCase(),
+      username: config.dashboardUsername,
+      displayName: config.dashboardUsername,
+      role: 'admin'
+    };
+  }
+
+  return null;
 }
 
 function unauthorizedResponse() {
@@ -78,11 +91,8 @@ app.http('shortenUrl', {
   authLevel: 'anonymous',
   route: 'api/shorten',
   handler: async (request) => {
-    if (!config.apiKey) {
-      return configurationErrorResponse();
-    }
-
-    if (!isAuthorized(request)) {
+    const identity = getRequestIdentity(request);
+    if (!identity) {
       return unauthorizedResponse();
     }
 
@@ -101,7 +111,7 @@ app.http('shortenUrl', {
     }
 
     try {
-      const result = await service.createShortLink(payload);
+      const result = await service.createShortLink(payload, identity.id);
       return {
         status: 201,
         jsonBody: result
@@ -180,11 +190,8 @@ app.http('getStats', {
   authLevel: 'anonymous',
   route: 'api/stats/{code?}',
   handler: async (request) => {
-    if (!config.apiKey) {
-      return configurationErrorResponse();
-    }
-
-    if (!isAuthorized(request)) {
+    const identity = getRequestIdentity(request);
+    if (!identity) {
       return unauthorizedResponse();
     }
 
@@ -193,7 +200,7 @@ app.http('getStats', {
     let links;
 
     try {
-      links = await service.getStats(code);
+      links = await service.getStats(code, identity.id);
     } catch (err) {
       if (isStorageUnavailableError(err)) {
         return unavailableStorageResponse(err);
@@ -291,7 +298,7 @@ app.http('dashboard', {
         ...SECURITY_HEADERS
       },
       body: renderDashboard(config.baseUrl, {
-        apiKeyConfigured: Boolean(config.apiKey)
+        user: getSessionIdentity(request, config)
       })
     };
   }
@@ -358,8 +365,9 @@ app.http('dashboardLoginSubmit', {
       };
     }
 
-    const valid = await verifyCredentials(username, password, config);
-    if (!valid) {
+    const storage = await storagePromise;
+    const user = await verifyCredentials(username, password, storage, config.dashboardPasswordHash);
+    if (!user) {
       recordFailedAttempt(ip);
       return {
         status: 401,
@@ -369,7 +377,7 @@ app.http('dashboardLoginSubmit', {
     }
 
     clearAttempts(ip);
-    const token = createSessionToken(config.dashboardUsername, config.dashboardSessionSecret);
+    const token = createSessionToken(user, config.dashboardSessionSecret);
     return {
       status: 302,
       headers: {
@@ -394,6 +402,55 @@ app.http('dashboardLogout', {
         'set-cookie': buildClearedSessionCookie(request)
       }
     };
+  }
+});
+
+app.http('createUser', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/users',
+  handler: async (request) => {
+    const identity = getRequestIdentity(request);
+    if (!identity || identity.role !== 'admin') {
+      return unauthorizedResponse();
+    }
+
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return { status: 400, jsonBody: { error: 'Request body must be valid JSON.' } };
+    }
+
+    const username = typeof payload.username === 'string' ? payload.username.trim() : '';
+    const displayName = typeof payload.displayName === 'string' ? payload.displayName.trim() : username;
+    const password = typeof payload.password === 'string' ? payload.password : '';
+    if (!/^[A-Za-z0-9._-]{3,64}$/.test(username) || !displayName || password.length < 12) {
+      return {
+        status: 400,
+        jsonBody: { error: 'Username must be 3-64 safe characters and password must be at least 12 characters.' }
+      };
+    }
+
+    try {
+      const storage = await storagePromise;
+      const user = await storage.createUser({
+        username,
+        displayName,
+        passwordHash: await bcrypt.hash(password, 12),
+        role: 'user',
+        createdAt: new Date().toISOString()
+      });
+      return { status: 201, jsonBody: user };
+    } catch (err) {
+      if (err.code === 'USER_EXISTS') {
+        return { status: 409, jsonBody: { error: 'Username already exists.' } };
+      }
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      return { status: 500, jsonBody: { error: 'Unable to create user.' } };
+    }
   }
 });
 

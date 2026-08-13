@@ -44,14 +44,17 @@ function sign(payload, sessionSecret) {
   return crypto.createHmac('sha256', sessionSecret).update(payload).digest('base64url');
 }
 
-function createSessionToken(username, sessionSecret) {
+function createSessionToken(user, sessionSecret) {
   const expiresAt = Date.now() + SESSION_TTL_SECONDS * 1000;
-  const payload = `${Buffer.from(username).toString('base64url')}.${expiresAt}`;
+  const claims = Buffer.from(
+    JSON.stringify({ id: user.id, username: user.username, displayName: user.displayName, role: user.role })
+  ).toString('base64url');
+  const payload = `${claims}.${expiresAt}`;
   const signature = sign(payload, sessionSecret);
   return `${payload}.${signature}`;
 }
 
-function verifySessionToken(token, username, sessionSecret) {
+function verifySessionToken(token, sessionSecret) {
   if (!token) {
     return false;
   }
@@ -61,35 +64,35 @@ function verifySessionToken(token, username, sessionSecret) {
     return false;
   }
 
-  const [encodedUsername, expiresAtRaw, signature] = parts;
-  const payload = `${encodedUsername}.${expiresAtRaw}`;
+  const [encodedClaims, expiresAtRaw, signature] = parts;
+  const payload = `${encodedClaims}.${expiresAtRaw}`;
   const expectedSignature = sign(payload, sessionSecret);
 
   if (!timingSafeEqualString(signature, expectedSignature)) {
-    return false;
+    return null;
   }
 
   const expiresAt = Number(expiresAtRaw);
   if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) {
-    return false;
+    return null;
   }
 
-  const decodedUsername = Buffer.from(encodedUsername, 'base64url').toString('utf8');
-  return timingSafeEqualString(decodedUsername, username);
+  try {
+    const identity = JSON.parse(Buffer.from(encodedClaims, 'base64url').toString('utf8'));
+    return identity.id && identity.username && identity.role ? identity : null;
+  } catch {
+    return null;
+  }
 }
 
-async function verifyCredentials(username, password, config) {
-  if (!config.dashboardUsername || !config.dashboardPasswordHash) {
-    return false;
+async function verifyCredentials(username, password, storage, fallbackHash) {
+  const user = await storage.getUser(username);
+  const passwordHash = user ? user.passwordHash : fallbackHash;
+  if (!passwordHash || !(await bcrypt.compare(password || '', passwordHash))) {
+    return null;
   }
 
-  if (!timingSafeEqualString(username || '', config.dashboardUsername)) {
-    // Still hash to keep response time consistent regardless of username validity.
-    await bcrypt.compare(password || '', config.dashboardPasswordHash);
-    return false;
-  }
-
-  return bcrypt.compare(password || '', config.dashboardPasswordHash);
+  return user;
 }
 
 function buildSessionCookie(token, request) {
@@ -118,22 +121,28 @@ function buildClearedSessionCookie(request) {
   return attributes.join('; ');
 }
 
-function isDashboardSessionValid(request, config) {
-  if (!config.dashboardUsername || !config.dashboardSessionSecret) {
-    return false;
+function getSessionIdentity(request, config) {
+  if (!config.dashboardSessionSecret) {
+    return null;
   }
 
   const cookies = parseCookies(request.headers.get('cookie'));
-  return verifySessionToken(cookies[SESSION_COOKIE_NAME], config.dashboardUsername, config.dashboardSessionSecret);
+  return verifySessionToken(cookies[SESSION_COOKIE_NAME], config.dashboardSessionSecret);
+}
+
+function isDashboardSessionValid(request, config) {
+  return Boolean(getSessionIdentity(request, config));
 }
 
 module.exports = {
   SESSION_COOKIE_NAME,
   parseCookies,
   createSessionToken,
+  verifySessionToken,
   verifyCredentials,
   buildSessionCookie,
   buildClearedSessionCookie,
+  getSessionIdentity,
   isDashboardSessionValid,
   timingSafeEqualString
 };

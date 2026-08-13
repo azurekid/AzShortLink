@@ -77,6 +77,20 @@ test('resolves short link and increments redirect stats', async () => {
   assert.equal(stats[0].lastAccessedAt, '2026-01-01T00:05:00.000Z');
 });
 
+test('returns only links owned by the active profile', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, { baseUrl: 'https://azhk.in' });
+
+  await service.createShortLink({ url: 'https://one.example', uniqueValue: 'user-one' }, 'user1');
+  await service.createShortLink({ url: 'https://two.example', uniqueValue: 'user-two' }, 'user2');
+
+  const links = await service.getStats('', 'user1');
+
+  assert.equal(links.length, 1);
+  assert.equal(links[0].code, 'user-one');
+  assert.equal(links[0].ownerId, 'user1');
+});
+
 test('reports detailed healthy storage diagnostics', async () => {
   const storage = {
     async getHealthDetails() {

@@ -31,6 +31,18 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async createUser() {
+    throw this.createError();
+  }
+
+  async getUser() {
+    throw this.createError();
+  }
+
+  async ensureAdminUser() {
+    throw this.createError();
+  }
+
   async ping() {
     return false;
   }

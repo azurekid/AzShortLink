@@ -32,7 +32,7 @@ class ShortLinkService {
     this.aliasGenerator = options.aliasGenerator || generateAlias;
   }
 
-  async createShortLink(payload = {}) {
+  async createShortLink(payload = {}, ownerId = '') {
     const targetUrl = typeof payload.url === 'string' ? payload.url.trim() : '';
     const requestedAlias = normalizeAlias(payload.uniqueValue || payload.alias || payload.code);
 
@@ -51,14 +51,14 @@ class ShortLinkService {
     const createdAt = this.now();
 
     if (requestedAlias) {
-      await this.storage.createLink({ code: requestedAlias, targetUrl, createdAt });
+      await this.storage.createLink({ code: requestedAlias, targetUrl, createdAt, ownerId });
       return { code: requestedAlias, shortUrl: `${this.baseUrl}/${requestedAlias}`, targetUrl };
     }
 
     for (let i = 0; i < MAX_GENERATION_ATTEMPTS; i += 1) {
       const code = this.aliasGenerator();
       try {
-        await this.storage.createLink({ code, targetUrl, createdAt });
+        await this.storage.createLink({ code, targetUrl, createdAt, ownerId });
         return { code, shortUrl: `${this.baseUrl}/${code}`, targetUrl };
       } catch (err) {
         if (err && err.code === 'ALIAS_EXISTS') {
@@ -97,14 +97,14 @@ class ShortLinkService {
     };
   }
 
-  async getStats(code) {
+  async getStats(code, ownerId = '') {
     const normalizedCode = normalizeAlias(code);
     if (normalizedCode) {
       const link = await this.storage.getLink(normalizedCode);
-      return link ? [link] : [];
+      return link && (!ownerId || link.ownerId === ownerId) ? [link] : [];
     }
 
-    return this.storage.listLinks(250);
+    return this.storage.listLinks(250, ownerId);
   }
 
   async getHealth() {

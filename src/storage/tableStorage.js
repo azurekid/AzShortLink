@@ -3,11 +3,74 @@
 const { TableClient } = require('@azure/data-tables');
 
 const PARTITION_KEY = 'LINK';
+const USER_PARTITION_KEY = 'USER';
 
 class TableStorage {
   constructor(client, options = {}) {
     this.client = client;
     this.tableName = options.tableName || '';
+  }
+
+  async createUser({ username, passwordHash, displayName, role = 'user', createdAt }) {
+    const userId = username.trim().toLowerCase();
+    try {
+      await this.client.createEntity({
+        partitionKey: USER_PARTITION_KEY,
+        rowKey: userId,
+        username,
+        passwordHash,
+        displayName,
+        role,
+        createdAt
+      });
+    } catch (err) {
+      if (err && (err.statusCode === 409 || err.code === 'EntityAlreadyExists')) {
+        const userErr = new Error('User already exists');
+        userErr.code = 'USER_EXISTS';
+        throw userErr;
+      }
+      throw err;
+    }
+
+    return { id: userId, username, displayName, role, createdAt };
+  }
+
+  async getUser(username) {
+    const userId = String(username).trim().toLowerCase();
+    if (!userId) {
+      return null;
+    }
+
+    try {
+      const item = await this.client.getEntity(USER_PARTITION_KEY, userId);
+      return {
+        id: item.rowKey,
+        username: item.username,
+        passwordHash: item.passwordHash,
+        displayName: item.displayName || item.username,
+        role: item.role || 'user',
+        createdAt: item.createdAt
+      };
+    } catch (err) {
+      if (err && err.statusCode === 404) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  async ensureAdminUser({ username, passwordHash }) {
+    if (!username || !passwordHash || (await this.getUser(username))) {
+      return;
+    }
+
+    await this.createUser({
+      username,
+      passwordHash,
+      displayName: username,
+      role: 'admin',
+      createdAt: new Date().toISOString()
+    });
   }
 
   static async create(connectionString, tableName) {
@@ -23,13 +86,14 @@ class TableStorage {
     return new TableStorage(client, { tableName });
   }
 
-  async createLink({ code, targetUrl, createdAt }) {
+  async createLink({ code, targetUrl, createdAt, ownerId = '' }) {
     try {
       await this.client.createEntity({
         partitionKey: PARTITION_KEY,
         rowKey: code,
         targetUrl,
         createdAt,
+        ownerId,
         redirectCount: 0,
         lastAccessedAt: ''
       });
@@ -50,6 +114,7 @@ class TableStorage {
         code: item.rowKey,
         targetUrl: item.targetUrl,
         createdAt: item.createdAt,
+        ownerId: item.ownerId || '',
         redirectCount: Number(item.redirectCount) || 0,
         lastAccessedAt: item.lastAccessedAt || ''
       };
@@ -73,15 +138,20 @@ class TableStorage {
     );
   }
 
-  async listLinks(limit = 250) {
+  async listLinks(limit = 250, ownerId = '') {
     const links = [];
     const entities = this.client.listEntities({ queryOptions: { filter: `PartitionKey eq '${PARTITION_KEY}'` } });
 
     for await (const item of entities) {
+      if (ownerId && item.ownerId !== ownerId) {
+        continue;
+      }
+
       links.push({
         code: item.rowKey,
         targetUrl: item.targetUrl,
         createdAt: item.createdAt,
+        ownerId: item.ownerId || '',
         redirectCount: Number(item.redirectCount) || 0,
         lastAccessedAt: item.lastAccessedAt || ''
       });
