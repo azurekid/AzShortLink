@@ -252,8 +252,8 @@ module hostBindingsSslManaged './modules/hostBindingsSsl.bicep' = if (!empty(cus
   params: {
     functionAppName: functionApp.name
     customDomain: customDomain
-    apexThumbprint: apexCert.properties.thumbprint
-    wwwThumbprint: wwwCert.properties.thumbprint
+    apexThumbprint: apexCert!.properties.thumbprint
+    wwwThumbprint: wwwCert!.properties.thumbprint
   }
 }
 
@@ -263,8 +263,8 @@ module hostBindingsSslCustom './modules/hostBindingsSsl.bicep' = if (!empty(cust
   params: {
     functionAppName: functionApp.name
     customDomain: customDomain
-    apexThumbprint: customCert.properties.thumbprint
-    wwwThumbprint: customCert.properties.thumbprint
+    apexThumbprint: customCert!.properties.thumbprint
+    wwwThumbprint: customCert!.properties.thumbprint
   }
 }
 

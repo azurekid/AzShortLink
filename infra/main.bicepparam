@@ -19,3 +19,17 @@ param customDomain = 'azhk.in'
 //   'http://localhost:3000'
 //   'http://localhost:5173'
 // ]
+
+// ── App Service Plan SKU (Consumption/Y1 does NOT support custom-domain SSL) ──
+param appServicePlanSkuName = 'B1'
+param appServicePlanSkuTier = 'Basic'
+
+// ── Certificate source ────────────────────────────────────────────────────────
+// true  = free App Service Managed Certificate (default, no PFX needed)
+// false = upload your own certificate below (convert your .pem files to a
+//         base64 PFX first, see docs/DEPLOY.md):
+//   openssl pkcs12 -export -out cert.pfx -inkey privkey.pem -in cert.pem -certfile chain.pem -passout pass:<password>
+//   base64 -w0 cert.pfx > cert.pfx.b64
+param useManagedCertificate = true
+param customCertificatePfxBase64 = readEnvironmentVariable('SHORTLINK_CERT_PFX_BASE64', '')
+param customCertificatePassword = readEnvironmentVariable('SHORTLINK_CERT_PFX_PASSWORD', '')
