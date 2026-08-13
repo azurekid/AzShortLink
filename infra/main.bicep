@@ -16,6 +16,23 @@ param baseUrl string = 'https://azhk.in'
 @description('Apex custom domain to bind to the Function App (e.g. azhk.in). Leave empty to skip custom-domain provisioning.')
 param customDomain string = 'azhk.in'
 
+@description('App Service Plan SKU name. The Consumption plan (Y1) does NOT support TLS/SSL bindings for custom domains (managed or uploaded certificates) - use B1 or higher if customDomain is set.')
+param appServicePlanSkuName string = 'B1'
+
+@description('App Service Plan SKU tier. Must be Basic, Standard, Premium or PremiumV3 (not Dynamic) to enable custom-domain SSL bindings.')
+param appServicePlanSkuTier string = 'Basic'
+
+@description('When true (default), issue free App Service Managed Certificates. When false, upload your own certificate via customCertificatePfxBase64/customCertificatePassword (requires appServicePlanSkuTier other than Dynamic).')
+param useManagedCertificate bool = true
+
+@description('Base64-encoded PFX certificate bundle (convert your PEM cert+key+chain with openssl) used when useManagedCertificate is false. The certificate must cover both the apex and www hostnames (SAN or wildcard).')
+@secure()
+param customCertificatePfxBase64 string = ''
+
+@description('Password protecting the PFX bundle above. Leave empty if the PFX has no password.')
+@secure()
+param customCertificatePassword string = ''
+
 @description('Table Storage table name.')
 param tableName string = 'AzShortLinks'
 
@@ -73,13 +90,15 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
-// ── App Service Plan (Consumption) ────────────────────────────────────────────
+// ── App Service Plan ──────────────────────────────────────────────────────────
+// Defaults to Consumption (Y1/Dynamic). Switch to Basic (B1) or higher to enable
+// custom-domain TLS/SSL bindings - Consumption doesn't support them.
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: appServicePlanName
   location: location
   sku: {
-    name: 'Y1'
-    tier: 'Dynamic'
+    name: appServicePlanSkuName
+    tier: appServicePlanSkuTier
   }
   kind: 'linux'
   properties: {
@@ -186,8 +205,8 @@ resource wwwHostBinding 'Microsoft.Web/sites/hostNameBindings@2023-01-01' = if (
   }
 }
 
-// App Service Managed Certificate for the apex domain
-resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
+// App Service Managed Certificate for the apex domain (free, auto-renewed)
+resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain) && useManagedCertificate) {
   name: '${prefix}-cert-apex-${take(suffix, 8)}'
   location: location
   dependsOn: [
@@ -199,8 +218,8 @@ resource apexCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDom
   }
 }
 
-// App Service Managed Certificate for the www subdomain
-resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain)) {
+// App Service Managed Certificate for the www subdomain (free, auto-renewed)
+resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain) && useManagedCertificate) {
   name: '${prefix}-cert-www-${take(suffix, 8)}'
   location: location
   dependsOn: [
@@ -212,14 +231,40 @@ resource wwwCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDoma
   }
 }
 
-// Re-bind hostnames with SNI SSL after certificate provisioning.
-module hostBindingsSsl './modules/hostBindingsSsl.bicep' = if (!empty(customDomain)) {
-  name: '${prefix}-hostbindings-ssl-${take(suffix, 8)}'
+// Uploaded custom certificate (converted from PEM files), covering both apex and www hostnames.
+resource customCert 'Microsoft.Web/certificates@2023-01-01' = if (!empty(customDomain) && !useManagedCertificate) {
+  name: '${prefix}-cert-custom-${take(suffix, 8)}'
+  location: location
+  dependsOn: [
+    apexHostBinding
+    wwwHostBinding
+  ]
+  properties: {
+    serverFarmId: appServicePlan.id
+    pfxBlob: customCertificatePfxBase64
+    password: customCertificatePassword
+  }
+}
+
+// Re-bind hostnames with SNI SSL after the managed certificates are issued.
+module hostBindingsSslManaged './modules/hostBindingsSsl.bicep' = if (!empty(customDomain) && useManagedCertificate) {
+  name: '${prefix}-hostbindings-ssl-managed-${take(suffix, 8)}'
   params: {
     functionAppName: functionApp.name
     customDomain: customDomain
-    apexThumbprint: apexCert!.properties.thumbprint
-    wwwThumbprint: wwwCert!.properties.thumbprint
+    apexThumbprint: apexCert.properties.thumbprint
+    wwwThumbprint: wwwCert.properties.thumbprint
+  }
+}
+
+// Re-bind hostnames with SNI SSL using the uploaded custom certificate.
+module hostBindingsSslCustom './modules/hostBindingsSsl.bicep' = if (!empty(customDomain) && !useManagedCertificate) {
+  name: '${prefix}-hostbindings-ssl-custom-${take(suffix, 8)}'
+  params: {
+    functionAppName: functionApp.name
+    customDomain: customDomain
+    apexThumbprint: customCert.properties.thumbprint
+    wwwThumbprint: customCert.properties.thumbprint
   }
 }
 
