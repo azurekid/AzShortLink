@@ -9,10 +9,12 @@ function makeFakeClient({ entities = [] } = {}) {
   const created = [];
   const deleted = [];
   const updated = [];
+  const filters = [];
   return {
     created,
     deleted,
     updated,
+    filters,
     async createEntity(entity) {
       created.push(entity);
       entities.push(entity);
@@ -44,6 +46,7 @@ function makeFakeClient({ entities = [] } = {}) {
     },
     listEntities({ queryOptions } = {}) {
       const filter = (queryOptions && queryOptions.filter) || '';
+      filters.push(filter);
       const matches = entities.filter((item) => filter.includes(`'${item.partitionKey}'`));
       return (async function* () {
         for (const item of matches) {
@@ -104,6 +107,17 @@ test('listAuditEvents maps the stored eventTime back onto timestamp', async () =
   assert.equal(events.length, 1);
   assert.equal(events[0].timestamp, '2026-01-01T00:00:00.000Z');
   assert.equal(events[0].action, 'LOGIN_SUCCESS');
+});
+
+test('listAuditEvents escapes single quotes in sinceIso before building the OData filter', async () => {
+  const { storage, auditClient } = makeStorage();
+
+  await storage.listAuditEvents({ limit: 10, sinceIso: "2026-01-01' or PartitionKey ne '" });
+
+  assert.equal(auditClient.filters.length, 1);
+  // Every raw single quote from the input must come through doubled (OData's escape for a
+  // literal quote), so the attacker-supplied text stays trapped inside the string literal.
+  assert.match(auditClient.filters[0], /eventTime ge '2026-01-01'' or PartitionKey ne '''$/);
 });
 
 test('deleteUser removes the user entity and any associated API key entity from the users table', async () => {

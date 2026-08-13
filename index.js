@@ -7,7 +7,8 @@ const { readFile } = require('node:fs/promises');
 const { getConfig } = require('./src/config');
 const { createStorage } = require('./src/storage');
 const { ShortLinkService } = require('./src/service/shortLinkService');
-const { renderDashboard } = require('./src/dashboard');
+const { renderUserDashboard } = require('./src/dashboard/user');
+const { renderAdminDashboard } = require('./src/dashboard/admin');
 const { renderLoginPage } = require('./src/loginPage');
 const { renderSignupPage } = require('./src/signupPage');
 const {
@@ -214,6 +215,9 @@ app.http('dashboard', {
       };
     }
 
+    const identity = getSessionIdentity(request, config);
+    const renderDashboard = identity && identity.role === 'admin' ? renderAdminDashboard : renderUserDashboard;
+
     return {
       status: 200,
       headers: {
@@ -221,9 +225,7 @@ app.http('dashboard', {
         'cache-control': 'no-store',
         ...SECURITY_HEADERS
       },
-      body: renderDashboard(config.baseUrl, {
-        user: getSessionIdentity(request, config)
-      })
+      body: renderDashboard(config.baseUrl, { user: identity })
     };
   }
 });
@@ -483,7 +485,6 @@ function dashboardConfigErrorResponse() {
 }
 
 // Best-effort brute-force throttle per client IP (resets on cold start; not a substitute for a WAF).
-const loginAttempts = new Map();
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 
@@ -491,37 +492,47 @@ function getClientIp(request) {
   return (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
 }
 
-function isLockedOut(ip) {
-  const entry = loginAttempts.get(ip);
-  if (!entry) {
-    return false;
-  }
+// Separate trackers per endpoint so guessing invite codes can't lock a shared account out of
+// login, and vice versa; each still shares the same cap/window shape.
+function createAttemptThrottle(maxAttempts = LOGIN_MAX_ATTEMPTS, lockoutMs = LOGIN_LOCKOUT_MS) {
+  const attempts = new Map();
 
-  if (entry.count < LOGIN_MAX_ATTEMPTS) {
-    return false;
-  }
+  return {
+    isLockedOut(ip) {
+      const entry = attempts.get(ip);
+      if (!entry) {
+        return false;
+      }
 
-  if (Date.now() - entry.firstAttemptAt > LOGIN_LOCKOUT_MS) {
-    loginAttempts.delete(ip);
-    return false;
-  }
+      if (entry.count < maxAttempts) {
+        return false;
+      }
 
-  return true;
+      if (Date.now() - entry.firstAttemptAt > lockoutMs) {
+        attempts.delete(ip);
+        return false;
+      }
+
+      return true;
+    },
+    recordFailedAttempt(ip) {
+      const entry = attempts.get(ip);
+      if (!entry || Date.now() - entry.firstAttemptAt > lockoutMs) {
+        attempts.set(ip, { count: 1, firstAttemptAt: Date.now() });
+        return;
+      }
+
+      entry.count += 1;
+    },
+    clearAttempts(ip) {
+      attempts.delete(ip);
+    }
+  };
 }
 
-function recordFailedAttempt(ip) {
-  const entry = loginAttempts.get(ip);
-  if (!entry || Date.now() - entry.firstAttemptAt > LOGIN_LOCKOUT_MS) {
-    loginAttempts.set(ip, { count: 1, firstAttemptAt: Date.now() });
-    return;
-  }
-
-  entry.count += 1;
-}
-
-function clearAttempts(ip) {
-  loginAttempts.delete(ip);
-}
+const loginThrottle = createAttemptThrottle();
+// Invite codes are bearer tokens for account creation, so guessing them is throttled too.
+const signupThrottle = createAttemptThrottle();
 
 app.http('dashboardLoginPage', {
   methods: ['GET'],
@@ -554,7 +565,7 @@ app.http('dashboardLoginSubmit', {
     }
 
     const ip = getClientIp(request);
-    if (isLockedOut(ip)) {
+    if (loginThrottle.isLockedOut(ip)) {
       return {
         status: 429,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -587,7 +598,7 @@ app.http('dashboardLoginSubmit', {
     const storage = await storagePromise;
     const user = await verifyCredentials(username, password, storage, config.dashboardPasswordHash);
     if (!user) {
-      recordFailedAttempt(ip);
+      loginThrottle.recordFailedAttempt(ip);
       await recordAuditEvent(storage, {
         action: ACTIONS.LOGIN_FAILED,
         actorUsername: username || 'unknown',
@@ -600,7 +611,7 @@ app.http('dashboardLoginSubmit', {
       };
     }
 
-    clearAttempts(ip);
+    loginThrottle.clearAttempts(ip);
     await recordAuditEvent(storage, {
       action: ACTIONS.LOGIN_SUCCESS,
       actorId: user.id,
@@ -641,11 +652,22 @@ app.http('dashboardSignupPage', {
   route: 'dashboard/signup',
   handler: async (request) => {
     const inviteCode = new URL(request.url).searchParams.get('invite') || '';
+    const ip = getClientIp(request);
+    if (signupThrottle.isLockedOut(ip)) {
+      return {
+        status: 429,
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+        body: renderSignupPage({ error: 'Too many attempts. Try again later.' })
+      };
+    }
 
     try {
       const storage = await storagePromise;
       const invite = inviteCode ? await storage.getInvite(inviteCode) : null;
       if (!invite || invite.redeemed) {
+        // Counts toward the same throttle as POST failures - this GET is the main way to
+        // brute-force/enumerate invite codes, since it directly reveals valid vs. invalid.
+        signupThrottle.recordFailedAttempt(ip);
         return {
           status: invite ? 410 : 404,
           headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
@@ -674,6 +696,15 @@ app.http('dashboardSignupSubmit', {
   authLevel: 'anonymous',
   route: 'dashboard/signup',
   handler: async (request) => {
+    const ip = getClientIp(request);
+    if (signupThrottle.isLockedOut(ip)) {
+      return {
+        status: 429,
+        headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+        body: renderSignupPage({ error: 'Too many attempts. Try again later.' })
+      };
+    }
+
     const contentType = request.headers.get('content-type') || '';
     let inviteCode = '';
     let username = '';
@@ -718,6 +749,7 @@ app.http('dashboardSignupSubmit', {
     }
 
     if (!invite || invite.redeemed) {
+      signupThrottle.recordFailedAttempt(ip);
       return {
         status: invite ? 410 : 404,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -728,6 +760,7 @@ app.http('dashboardSignupSubmit', {
     }
 
     if (!/^[A-Za-z0-9._-]{3,64}$/.test(username) || !displayName || password.length < 12) {
+      signupThrottle.recordFailedAttempt(ip);
       return {
         status: 400,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -762,6 +795,7 @@ app.http('dashboardSignupSubmit', {
       // The invite code doubles as a real shortlink code; deleting it here means the URL
       // itself stops resolving once redeemed, instead of redirecting forever to a dead end.
       await storage.deleteLink(inviteCode);
+      signupThrottle.clearAttempts(ip);
 
       await recordAuditEvent(storage, {
         action: ACTIONS.USER_CREATED,
@@ -789,6 +823,7 @@ app.http('dashboardSignupSubmit', {
       };
     } catch (err) {
       if (err.code === 'USER_EXISTS') {
+        signupThrottle.recordFailedAttempt(ip);
         return {
           status: 409,
           headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1182,7 +1217,10 @@ app.http('getAuditLog', {
 
     const params = new URL(request.url).searchParams;
     const limit = Math.min(Math.max(Number(params.get('limit')) || 200, 1), 1000);
-    const sinceIso = params.get('since') || '';
+    // Strictly validated because it's interpolated into an OData filter string in TableStorage;
+    // anything not matching this shape is dropped rather than passed through.
+    const sinceParam = params.get('since') || '';
+    const sinceIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/.test(sinceParam) ? sinceParam : '';
     const actionFilter = params.get('action') || '';
     const actorFilter = params.get('actor') || '';
 

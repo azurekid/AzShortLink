@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const { parseUserAgent, parseReferrer } = require('../userAgent');
 
 const ALIAS_PATTERN = /^[A-Za-z0-9_-]{4,32}$/;
@@ -44,7 +45,9 @@ function normalizeAlias(value) {
 }
 
 function generateAlias() {
-  return Math.random().toString(36).slice(2, 10);
+  // Invite codes reuse this generator as bearer tokens for account creation, so it must be
+  // unpredictable - Math.random() is not a CSPRNG and its output can be reconstructed.
+  return crypto.randomBytes(6).toString('base64url');
 }
 
 class ShortLinkService {

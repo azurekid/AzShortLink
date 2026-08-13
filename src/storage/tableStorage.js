@@ -445,9 +445,12 @@ class TableStorage {
 
   async listAuditEvents({ limit = 200, sinceIso = '' } = {}) {
     const cutoff = sinceIso || retentionCutoffIso();
+    // Defense-in-depth: the value is interpolated into an OData filter string, so a literal
+    // single quote is escaped even though callers are expected to pre-validate the format.
+    const escapedCutoff = String(cutoff).replaceAll("'", "''");
     const events = [];
     const entities = this.auditClient.listEntities({
-      queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and eventTime ge '${cutoff}'` }
+      queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and eventTime ge '${escapedCutoff}'` }
     });
 
     for await (const item of entities) {
