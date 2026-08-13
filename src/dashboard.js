@@ -35,12 +35,13 @@ body {
 }
 .bg-layer {
   position:fixed; inset:0; z-index:0; pointer-events:none;
-  background:
-    linear-gradient(rgba(10,10,15,.90),rgba(10,10,15,.96)),
-    radial-gradient(circle at 15% 8%,rgba(0,212,255,.16),transparent 34%),
-    radial-gradient(circle at 85% 92%,rgba(124,58,237,.16),transparent 36%),
-    url("${BACKGROUND_URL}") center/cover no-repeat fixed,
-    var(--bg);
+  background-color:var(--bg);
+  background-image:
+    linear-gradient(rgba(10,10,15,.55),rgba(10,10,15,.78)),
+    radial-gradient(circle at 15% 8%,rgba(0,212,255,.18),transparent 34%),
+    radial-gradient(circle at 85% 92%,rgba(124,58,237,.18),transparent 36%),
+    url("${BACKGROUND_URL}");
+  background-position:center; background-size:cover; background-repeat:no-repeat;
 }
 body::after {
   content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
@@ -76,8 +77,8 @@ p { color:var(--muted); }
 .span-full { grid-column:1/-1; }
 .card {
   position:relative; padding:20px; border:1px solid var(--border); border-radius:var(--radius);
-  background:color-mix(in srgb,var(--card) 88%,transparent); box-shadow:var(--shadow);
-  backdrop-filter:blur(6px);
+  background:color-mix(in srgb,var(--card) 82%,transparent); box-shadow:var(--shadow);
+  backdrop-filter:blur(10px);
   transition:transform var(--ease),border-color var(--ease),box-shadow var(--ease);
 }
 .card::before {

@@ -33,12 +33,13 @@ function renderLoginPage(options = {}) {
     body {
       margin:0; min-height:100vh; display:grid; place-items:center; padding:24px;
       color:var(--text); line-height:1.6; font-family:Inter,"Segoe UI",system-ui,sans-serif;
-      background:
-        linear-gradient(rgba(10,10,15,.90),rgba(10,10,15,.96)),
-        radial-gradient(circle at 15% 8%,rgba(0,212,255,.16),transparent 34%),
-        radial-gradient(circle at 85% 92%,rgba(124,58,237,.16),transparent 36%),
-        url("https://blackcatwebshop.z13.web.core.windows.net/media/azure-hacking-corp.jpg") center/cover no-repeat fixed,
-        var(--bg);
+      background-color:var(--bg);
+      background-image:
+        linear-gradient(rgba(10,10,15,.55),rgba(10,10,15,.78)),
+        radial-gradient(circle at 15% 8%,rgba(0,212,255,.18),transparent 34%),
+        radial-gradient(circle at 85% 92%,rgba(124,58,237,.18),transparent 36%),
+        url("https://blackcatwebshop.z13.web.core.windows.net/media/azure-hacking-corp.jpg");
+      background-position:center; background-size:cover; background-repeat:no-repeat; background-attachment:fixed;
     }
     body::after {
       content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
@@ -46,7 +47,7 @@ function renderLoginPage(options = {}) {
     }
     form {
       position:relative; z-index:1; width:min(400px,100%); padding:30px;
-      background:color-mix(in srgb,var(--card) 88%,transparent);
+      background:color-mix(in srgb,var(--card) 82%,transparent);
       border:1px solid var(--border); border-radius:10px;
       box-shadow:0 4px 24px rgba(0,0,0,.45);
       backdrop-filter:blur(6px);
