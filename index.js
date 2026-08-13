@@ -106,6 +106,21 @@ app.http('shortenUrl', {
   }
 });
 
+app.http('root', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: '',
+  handler: async () => {
+    return {
+      status: 302,
+      headers: {
+        location: '/dashboard',
+        'cache-control': 'no-store'
+      }
+    };
+  }
+});
+
 app.http('redirectUrl', {
   methods: ['GET'],
   authLevel: 'anonymous',

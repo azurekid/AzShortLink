@@ -115,7 +115,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
     serverFarmId: appServicePlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'NODE|24'
+      linuxFxVersion: 'NODE|20'
       functionAppScaleLimit: 200
       cors: {
         allowedOrigins: effectiveCorsOrigins
