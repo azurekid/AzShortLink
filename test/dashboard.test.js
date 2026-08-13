@@ -67,6 +67,17 @@ test('does not show the audit trail tab to non-admin users', () => {
   assert.doesNotMatch(html, /data-panel="panel-audit"/);
 });
 
+test('inline dashboard script is syntactically valid JavaScript', () => {
+  for (const role of ['user', 'admin']) {
+    const html = renderDashboard('https://azhk.in', { user: { username: 'x', displayName: 'X', role } });
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+
+    // Throws a SyntaxError if a template-literal escaping bug (e.g. a bare \n or \r\n)
+    // broke a nested string/regex literal across a real line break.
+    assert.doesNotThrow(() => new Function(script), `inline script is invalid for role "${role}"`);
+  }
+});
+
 test('escapes the signed-in display name', () => {
   const html = renderDashboard('https://azhk.in', {
     user: { username: 'x', displayName: '<img src=x onerror=alert(1)>', role: 'user' }

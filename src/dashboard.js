@@ -585,7 +585,7 @@ ${HEAD_ASSETS}
     });
     function csvEscape(value) {
       const str = String(value ?? '');
-      return /[",\n]/.test(str) ? '"' + str.replaceAll('"', '""') + '"' : str;
+      return /[",\\n]/.test(str) ? '"' + str.replaceAll('"', '""') + '"' : str;
     }
     const exportAuditButton = document.getElementById('export-audit-csv');
     if (exportAuditButton) exportAuditButton.addEventListener('click', () => {
@@ -594,7 +594,7 @@ ${HEAD_ASSETS}
       const rows = latestAuditEvents.map((event) => header.map((key) =>
         csvEscape(key === 'details' ? JSON.stringify(event.details || {}) : event[key])
       ).join(','));
-      const csv = [header.join(','), ...rows].join('\r\n');
+      const csv = [header.join(','), ...rows].join('\\r\\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
