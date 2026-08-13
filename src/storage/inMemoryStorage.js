@@ -1,10 +1,13 @@
 'use strict';
 
+const { retentionCutoffIso, generateAuditRowKey } = require('../audit');
+
 class InMemoryStorage {
   constructor(options = {}) {
     this.items = new Map();
     this.users = new Map();
     this.apiKeys = new Map();
+    this.auditEvents = new Map();
     this.tableName = options.tableName || '';
   }
 
@@ -131,6 +134,26 @@ class InMemoryStorage {
 
   async ping() {
     return true;
+  }
+
+  async appendAuditEvent(entry) {
+    const rowKey = generateAuditRowKey();
+    this.auditEvents.set(rowKey, { ...entry, rowKey });
+
+    const cutoff = retentionCutoffIso();
+    for (const [key, event] of this.auditEvents) {
+      if (event.timestamp < cutoff) {
+        this.auditEvents.delete(key);
+      }
+    }
+  }
+
+  async listAuditEvents({ limit = 200, sinceIso = '' } = {}) {
+    const cutoff = sinceIso || retentionCutoffIso();
+    return Array.from(this.auditEvents.values())
+      .filter((event) => event.timestamp >= cutoff)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, limit);
   }
 
   async getHealthDetails() {

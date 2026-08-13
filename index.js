@@ -21,6 +21,7 @@ const {
   API_KEY_PREFIX,
   timingSafeEqualString
 } = require('./src/auth');
+const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('./src/audit');
 
 const config = getConfig();
 const storagePromise = createStorage(config);
@@ -153,6 +154,14 @@ app.http('shortenUrl', {
 
     try {
       const result = await service.createShortLink(payload, identity.id);
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LINK_CREATED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request),
+        details: { code: result.code, targetUrl: result.targetUrl }
+      });
       return {
         status: 201,
         jsonBody: result
@@ -294,6 +303,15 @@ app.http('deleteLink', {
         return { status: 404, jsonBody: { error: 'Short URL not found.' } };
       }
 
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LINK_DELETED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request),
+        details: { code: request.params.code, asAdmin: identity.role === 'admin' }
+      });
+
       return { status: 200, jsonBody: { deleted: true, code: request.params.code } };
     } catch (err) {
       if (err.code === 'FORBIDDEN') {
@@ -399,6 +417,12 @@ app.http('changePassword', {
       }
 
       await storage.updateUserPassword(identity.id, await bcrypt.hash(newPassword, 12));
+      await recordAuditEvent(storage, {
+        action: ACTIONS.PASSWORD_CHANGED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request)
+      });
       return {
         status: 200,
         headers: { 'set-cookie': buildClearedSessionCookie(request) },
@@ -563,6 +587,11 @@ app.http('dashboardLoginSubmit', {
     const user = await verifyCredentials(username, password, storage, config.dashboardPasswordHash);
     if (!user) {
       recordFailedAttempt(ip);
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LOGIN_FAILED,
+        actorUsername: username || 'unknown',
+        ip
+      });
       return {
         status: 401,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -571,6 +600,12 @@ app.http('dashboardLoginSubmit', {
     }
 
     clearAttempts(ip);
+    await recordAuditEvent(storage, {
+      action: ACTIONS.LOGIN_SUCCESS,
+      actorId: user.id,
+      actorUsername: user.username,
+      ip
+    });
     const token = createSessionToken(user, config.dashboardSessionSecret);
     return {
       status: 302,
@@ -635,6 +670,13 @@ app.http('createUser', {
         role: 'user',
         createdAt: new Date().toISOString()
       });
+      await recordAuditEvent(storage, {
+        action: ACTIONS.USER_CREATED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request),
+        details: { createdUsername: username }
+      });
       return { status: 201, jsonBody: user };
     } catch (err) {
       if (err.code === 'USER_EXISTS') {
@@ -666,6 +708,14 @@ app.http('rotateApiKey', {
       if (!saved) {
         return { status: 404, jsonBody: { error: 'Profile not found.' } };
       }
+
+      await recordAuditEvent(storage, {
+        action: ACTIONS.API_KEY_ROTATED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request),
+        details: { displayPrefix }
+      });
 
       // The plaintext key is returned once and never stored.
       return { status: 201, jsonBody: { apiKey: key, displayPrefix, createdAt } };
@@ -700,6 +750,67 @@ app.http('getProfile', {
           role: identity.role,
           apiKeyPrefix: (user && user.apiKeyPrefix) || '',
           apiKeyCreatedAt: (user && user.apiKeyCreatedAt) || ''
+        }
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      throw err;
+    }
+  }
+});
+
+app.http('getAuditLog', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/audit',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') {
+      return unauthorizedResponse();
+    }
+
+    const params = new URL(request.url).searchParams;
+    const limit = Math.min(Math.max(Number(params.get('limit')) || 200, 1), 1000);
+    const sinceIso = params.get('since') || '';
+    const actionFilter = params.get('action') || '';
+    const actorFilter = params.get('actor') || '';
+
+    try {
+      const storage = await storagePromise;
+      let events = await storage.listAuditEvents({ limit: Math.min(limit * 4, 1000), sinceIso });
+
+      if (actionFilter) {
+        events = events.filter((event) => event.action === actionFilter);
+      }
+      if (actorFilter) {
+        events = events.filter((event) => event.actorUsername === actorFilter);
+      }
+
+      return {
+        status: 200,
+        jsonBody: {
+          retentionDays: AUDIT_RETENTION_DAYS,
+          total: events.length,
+          events: events.slice(0, limit).map((event) => {
+            let details = {};
+            try {
+              details = JSON.parse(event.details || '{}');
+            } catch {
+              details = {};
+            }
+
+            return {
+              timestamp: event.timestamp,
+              action: event.action,
+              actorId: event.actorId,
+              actorUsername: event.actorUsername,
+              ip: event.ip,
+              details
+            };
+          })
         }
       };
     } catch (err) {

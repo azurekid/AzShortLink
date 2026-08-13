@@ -63,6 +63,14 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async appendAuditEvent() {
+    throw this.createError();
+  }
+
+  async listAuditEvents() {
+    throw this.createError();
+  }
+
   async ping() {
     return false;
   }

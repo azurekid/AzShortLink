@@ -1,10 +1,12 @@
 'use strict';
 
 const { TableClient } = require('@azure/data-tables');
+const { retentionCutoffIso, generateAuditRowKey } = require('../audit');
 
 const PARTITION_KEY = 'LINK';
 const USER_PARTITION_KEY = 'USER';
 const APIKEY_PARTITION_KEY = 'APIKEY';
+const AUDIT_PARTITION_KEY = 'AUDIT';
 
 function parseAgentStats(value) {
   if (!value) {
@@ -282,6 +284,53 @@ class TableStorage {
     } catch {
       return false;
     }
+  }
+
+  async appendAuditEvent(entry) {
+    await this.client.createEntity({
+      partitionKey: AUDIT_PARTITION_KEY,
+      rowKey: generateAuditRowKey(),
+      ...entry
+    });
+
+    // Bounded, best-effort purge so a single write never scans/deletes the whole log.
+    const cutoff = retentionCutoffIso();
+    const expired = this.client.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and timestamp lt '${cutoff}'` }
+    });
+    let deleted = 0;
+    for await (const item of expired) {
+      if (deleted >= 25) {
+        break;
+      }
+      try {
+        await this.client.deleteEntity(AUDIT_PARTITION_KEY, item.rowKey);
+        deleted += 1;
+      } catch {
+        // Best-effort: leave it for the next write to retry.
+      }
+    }
+  }
+
+  async listAuditEvents({ limit = 200, sinceIso = '' } = {}) {
+    const cutoff = sinceIso || retentionCutoffIso();
+    const events = [];
+    const entities = this.client.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and timestamp ge '${cutoff}'` }
+    });
+
+    for await (const item of entities) {
+      events.push({
+        timestamp: item.timestamp,
+        action: item.action,
+        actorId: item.actorId || '',
+        actorUsername: item.actorUsername || 'anonymous',
+        ip: item.ip || '',
+        details: item.details || '{}'
+      });
+    }
+
+    return events.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, limit);
   }
 
   async getHealthDetails() {

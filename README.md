@@ -16,6 +16,7 @@ A low-cost Azure Functions URL shortener with authenticated link creation, redir
 - `POST /api/profile/password` so users can rotate their own password
 - `POST /api/profile/apikey` issues a personal API key scoped to the signed-in profile
 - `GET /api/users` (admin) lists every profile with its link count
+- `GET /api/audit` (admin) queries the 30-day security audit trail for your SIEM
 - `GET /custom.css` serves `src/custom.css` so you can override the theme without touching app code
 - Admin-created user profiles with bcrypt password hashes and signed sessions
 - Case-sensitive usernames
@@ -107,6 +108,29 @@ The deployment-wide `SHORTLINK_API_KEY` still works and maps to the admin profil
 Each redirect updates per-link counters for browser, operating system, device type, and referrer host, derived from the request's `User-Agent` and `Referer` headers. No IP addresses or personal data are stored, and no extra storage write is added — the counters piggyback on the existing redirect-count update. The Statistics tab renders these as bar charts alongside totals and top links.
 
 API clients may still authenticate with `SHORTLINK_API_KEY`; that key acts as the admin identity. Dashboard users authenticate with their profile credentials.
+
+### Audit trail
+
+Every security-relevant action is recorded to Azure Table Storage (partition `AUDIT`) and retained for 30 days:
+
+| Action | Recorded on |
+|---|---|
+| `LOGIN_SUCCESS` / `LOGIN_FAILED` | Every dashboard sign-in attempt, success or failure |
+| `LINK_CREATED` | Who created a link, its code, and the target URL |
+| `LINK_DELETED` | Who deleted a link, and whether it was an admin acting on someone else's link |
+| `USER_CREATED` | Admin-created profiles |
+| `PASSWORD_CHANGED` | Self-service password rotation |
+| `API_KEY_ROTATED` | Personal API key generation |
+
+Query it as an admin:
+
+```bash
+curl "https://azhk.in/api/audit?limit=500" -H "x-api-key: <admin-api-key>"
+```
+
+Optional query params: `since` (ISO 8601 timestamp), `action` (filter to one action type), `actor` (filter to one username), `limit` (default 200, max 1000). The response includes `retentionDays: 30` so a SIEM pull job can confirm the window it's operating under. Entries older than 30 days are purged opportunistically in small batches on each new write, so no scheduled job is required, but very low-traffic deployments may retain slightly-expired entries a little longer than 30 days until the next write occurs — the query itself always filters them out regardless.
+
+**Never logged:** passwords, password hashes, session tokens, or full API keys. Only the acting user, action, timestamp, source IP, and non-secret details (e.g., link code/target URL) are recorded.
 
 ## Multiple profiles and domains
 
