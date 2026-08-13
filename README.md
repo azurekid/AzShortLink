@@ -1,6 +1,6 @@
 # AzShortLink
 
-A low-cost Azure Functions URL shortener with authenticated link creation, redirects, redirect statistics, a multi-profile browser dashboard, and deploy-ready Azure infrastructure.
+A low-cost Azure Functions URL shortener with authenticated link creation, redirects, redirect statistics, a multi-profile browser dashboard, and deploy-ready Azure infrastructure
 
 ## Features
 
