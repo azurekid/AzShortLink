@@ -33,3 +33,10 @@ param appServicePlanSkuTier = 'Basic'
 param useManagedCertificate = false
 param customCertificatePfxBase64 = readEnvironmentVariable('SHORTLINK_CERT_PFX_BASE64', '')
 param customCertificatePassword = readEnvironmentVariable('SHORTLINK_CERT_PFX_PASSWORD', '')
+
+// ── Dashboard login ────────────────────────────────────────────────────────────
+// Generate the hash with: node scripts/generate-dashboard-hash.js '<password>'
+// Generate the session secret with: openssl rand -hex 32
+param dashboardUsername = readEnvironmentVariable('DASHBOARD_USERNAME', '')
+param dashboardPasswordHash = readEnvironmentVariable('DASHBOARD_PASSWORD_HASH', '')
+param dashboardSessionSecret = readEnvironmentVariable('DASHBOARD_SESSION_SECRET', '')

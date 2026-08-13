@@ -33,6 +33,17 @@ param customCertificatePfxBase64 string = ''
 @secure()
 param customCertificatePassword string = ''
 
+@description('Username required to sign in to the /dashboard console.')
+param dashboardUsername string = ''
+
+@description('Bcrypt hash of the dashboard password (generate with scripts/generate-dashboard-hash.js). Never pass a plaintext password here.')
+@secure()
+param dashboardPasswordHash string = ''
+
+@description('Random secret used to sign dashboard session cookies (generate with openssl rand -hex 32).')
+@secure()
+param dashboardSessionSecret string = ''
+
 @description('Table Storage table name.')
 param tableName string = 'AzShortLinks'
 
@@ -161,6 +172,18 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         {
           name: 'SHORTLINK_TABLE_NAME'
           value: tableName
+        }
+        {
+          name: 'DASHBOARD_USERNAME'
+          value: dashboardUsername
+        }
+        {
+          name: 'DASHBOARD_PASSWORD_HASH'
+          value: dashboardPasswordHash
+        }
+        {
+          name: 'DASHBOARD_SESSION_SECRET'
+          value: dashboardSessionSecret
         }
       ]
     }

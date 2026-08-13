@@ -49,6 +49,11 @@ The Bicep template in `infra/main.bicep` creates:
 ```bash
 API_KEY="$(openssl rand -hex 32)"   # generate a strong random key
 
+# Dashboard login credentials (required to access /dashboard)
+DASHBOARD_USERNAME="admin"
+DASHBOARD_PASSWORD_HASH="$(node scripts/generate-dashboard-hash.js '<choose-a-strong-password>')"
+DASHBOARD_SESSION_SECRET="$(openssl rand -hex 32)"
+
 az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
   --template-file infra/main.bicep \
@@ -56,16 +61,21 @@ az deployment group create \
   --parameters apiKey="$API_KEY" \
                baseUrl="https://azhk.in" \
                corsAllowedOrigins='["https://azhk.in"]' \
-               localDevCorsAllowedOrigins='["http://localhost:3000","http://localhost:5173"]'
+               localDevCorsAllowedOrigins='["http://localhost:3000","http://localhost:5173"]' \
+               dashboardUsername="$DASHBOARD_USERNAME" \
+               dashboardPasswordHash="$DASHBOARD_PASSWORD_HASH" \
+               dashboardSessionSecret="$DASHBOARD_SESSION_SECRET"
 
 # Save the API key — you will need it to call the API and use /dashboard
 echo "SHORTLINK_API_KEY=$API_KEY"
+echo "DASHBOARD_USERNAME=$DASHBOARD_USERNAME"
 ```
 
 Notes:
 - `SHORTLINK_TABLE_NAME` is created by the template and also verified at runtime by the app.
 - The app does **not** use Azure Storage Queues today, so no queue resources are provisioned.
 - CORS is configured from `corsAllowedOrigins` + `localDevCorsAllowedOrigins`, which are merged and exposed as an output.
+- **Store `DASHBOARD_PASSWORD_HASH` and `DASHBOARD_SESSION_SECRET` as secrets** (e.g. GitHub Actions secrets, Key Vault) — never commit them. The password itself is never stored, only its bcrypt hash.
 - **Expect `503 Service Unavailable` right after this step.** `WEBSITE_RUN_FROM_PACKAGE=1` tells the Function App to run from a deployed zip package, which doesn't exist yet — this is normal until you complete [Section 4](#4-deploy-the-application-code) and isn't a deployment failure.
 
 Capture the function app name from the outputs:
@@ -162,7 +172,7 @@ curl -X POST "https://$HOSTNAME/api/shorten" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com", "uniqueValue": "test"}'
 
-# Open the browser dashboard (paste the same API key into the UI)
+# Open the browser dashboard (sign in with DASHBOARD_USERNAME / your chosen password)
 echo "https://$HOSTNAME/dashboard"
 
 # Follow the redirect
@@ -180,6 +190,14 @@ curl -L "https://$HOSTNAME/test"
     --resource-group "$RESOURCE_GROUP" \
     --name "$FUNCTION_APP" \
     --settings SHORTLINK_API_KEY="<new-key>"
+  ```
+- **Rotating the dashboard password** — regenerate the hash and update the app setting (this invalidates existing sessions since a new hash still verifies against the same signed cookies, but you should also rotate `DASHBOARD_SESSION_SECRET` to force re-login):
+  ```bash
+  NEW_HASH=$(node scripts/generate-dashboard-hash.js '<new-password>')
+  az functionapp config appsettings set \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$FUNCTION_APP" \
+    --settings DASHBOARD_PASSWORD_HASH="$NEW_HASH"
   ```
 - **CORS updates** — rerun the Bicep deployment with updated `corsAllowedOrigins` / `localDevCorsAllowedOrigins` values whenever you add a new browser client origin.
 - **Monitoring** — Application Insights is pre-configured. View logs and metrics in the Azure portal under the Application Insights resource.

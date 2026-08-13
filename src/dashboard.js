@@ -177,6 +177,9 @@ function renderDashboard(baseUrl, options = {}) {
     <h1><span class="glitch">AzShortLink</span> Console</h1>
     <p>Base URL: <span class="mono">${escapeHtml(baseUrl)}</span></p>
     <p>Use the terminal console below to mint new short links and inspect existing aliases with your API key.</p>
+    <form method="POST" action="/dashboard/logout" style="margin: -8px 0 12px;">
+      <button type="submit" style="width: auto;">Sign out</button>
+    </form>
     ${
       apiKeyConfigured
         ? ''
