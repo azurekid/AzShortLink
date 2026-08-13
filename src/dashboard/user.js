@@ -56,7 +56,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           <p class="mono">GET /api/stats</p>
           <p class="mono">GET /api/analytics</p>
           <p class="mono">DELETE /api/links/{code}</p>
-          <p>Browser requests are authenticated with your session cookie, so no API key is needed here.</p>
+          <p>An API key is required to call these endpoints. Create one from the Account tab.</p>
         </section>
         <section class="card span-full">
           <div class="card-header"><h2>Your links</h2><button id="load-stats" class="button-secondary button-compact" type="button">Refresh</button></div>
