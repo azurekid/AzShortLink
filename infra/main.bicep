@@ -40,7 +40,7 @@ param dashboardUsername string = ''
 @secure()
 param dashboardPasswordHash string = ''
 
-@description('Random secret used to sign dashboard session cookies (generate with openssl rand -hex 32).')
+@description('Optional: random secret used to sign dashboard session cookies (generate with openssl rand -hex 32). If left empty, it is auto-derived from dashboardPasswordHash and apiKey - set explicitly if you want to invalidate all sessions independently of rotating the password.')
 @secure()
 param dashboardSessionSecret string = ''
 

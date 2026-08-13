@@ -52,7 +52,6 @@ API_KEY="$(openssl rand -hex 32)"   # generate a strong random key
 # Dashboard login credentials (required to access /dashboard)
 DASHBOARD_USERNAME="admin"
 DASHBOARD_PASSWORD_HASH="$(node scripts/generate-dashboard-hash.js '<choose-a-strong-password>')"
-DASHBOARD_SESSION_SECRET="$(openssl rand -hex 32)"
 
 az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
@@ -63,8 +62,7 @@ az deployment group create \
                corsAllowedOrigins='["https://azhk.in"]' \
                localDevCorsAllowedOrigins='["http://localhost:3000","http://localhost:5173"]' \
                dashboardUsername="$DASHBOARD_USERNAME" \
-               dashboardPasswordHash="$DASHBOARD_PASSWORD_HASH" \
-               dashboardSessionSecret="$DASHBOARD_SESSION_SECRET"
+               dashboardPasswordHash="$DASHBOARD_PASSWORD_HASH"
 
 # Save the API key — you will need it to call the API and use /dashboard
 echo "SHORTLINK_API_KEY=$API_KEY"
@@ -75,7 +73,8 @@ Notes:
 - `SHORTLINK_TABLE_NAME` is created by the template and also verified at runtime by the app.
 - The app does **not** use Azure Storage Queues today, so no queue resources are provisioned.
 - CORS is configured from `corsAllowedOrigins` + `localDevCorsAllowedOrigins`, which are merged and exposed as an output.
-- **Store `DASHBOARD_PASSWORD_HASH` and `DASHBOARD_SESSION_SECRET` as secrets** (e.g. GitHub Actions secrets, Key Vault) — never commit them. The password itself is never stored, only its bcrypt hash.
+- **Store `DASHBOARD_PASSWORD_HASH` as a secret** (e.g. GitHub Actions secrets, Key Vault) — never commit it. The password itself is never stored, only its bcrypt hash.
+- **`dashboardSessionSecret` is optional.** If omitted, it's auto-derived server-side from `dashboardPasswordHash` + `apiKey`, so cookie-signing works out of the box with one less secret to manage. Pass `dashboardSessionSecret` explicitly (a random value from `openssl rand -hex 32`) only if you want to force-expire all dashboard sessions without also rotating the password.
 - **Expect `503 Service Unavailable` right after this step.** `WEBSITE_RUN_FROM_PACKAGE=1` tells the Function App to run from a deployed zip package, which doesn't exist yet — this is normal until you complete [Section 4](#4-deploy-the-application-code) and isn't a deployment failure.
 
 Capture the function app name from the outputs:
@@ -211,7 +210,7 @@ curl -L "https://$HOSTNAME/test"
     --name "$FUNCTION_APP" \
     --settings SHORTLINK_API_KEY="<new-key>"
   ```
-- **Rotating the dashboard password** — regenerate the hash and update the app setting (this invalidates existing sessions since a new hash still verifies against the same signed cookies, but you should also rotate `DASHBOARD_SESSION_SECRET` to force re-login):
+- **Rotating the dashboard password** — regenerate the hash and update the app setting. Because the session secret is derived from the password hash by default, this alone also invalidates all existing sessions:
   ```bash
   NEW_HASH=$(node scripts/generate-dashboard-hash.js '<new-password>')
   az functionapp config appsettings set \

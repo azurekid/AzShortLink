@@ -25,10 +25,11 @@ const SECURITY_HEADERS = {
 };
 
 function configurationErrorResponse() {
+  console.error('[api] SHORTLINK_API_KEY is not configured; restart the Function App after setting it.');
   return {
     status: 503,
     jsonBody: {
-      error: 'SHORTLINK_API_KEY is not configured. Set the app setting and restart the Function App.'
+      error: 'Service temporarily unavailable.'
     }
   };
 }
@@ -217,10 +218,11 @@ function dashboardAuthConfigured() {
 }
 
 function dashboardConfigErrorResponse() {
+  console.error('[dashboard] Login is not configured: set DASHBOARD_USERNAME and DASHBOARD_PASSWORD_HASH app settings.');
   return {
     status: 503,
     headers: { 'content-type': 'text/plain; charset=utf-8' },
-    body: 'Dashboard login is not configured. Set DASHBOARD_USERNAME, DASHBOARD_PASSWORD_HASH and DASHBOARD_SESSION_SECRET app settings.'
+    body: 'Service temporarily unavailable.'
   };
 }
 
