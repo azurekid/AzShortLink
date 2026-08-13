@@ -25,6 +25,10 @@ const {
 const config = getConfig();
 const storagePromise = createStorage(config);
 const servicePromise = storagePromise.then((storage) => new ShortLinkService(storage, { baseUrl: config.baseUrl }));
+// Prevent an unhandled rejection from crashing the worker at cold start; real errors still
+// surface normally wherever these promises are awaited inside a request handler.
+storagePromise.catch(() => {});
+servicePromise.catch(() => {});
 const SECURITY_HEADERS = {
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
@@ -78,7 +82,7 @@ function getRequestIdentity(request) {
 
 // Personal keys are looked up by hash, so this needs storage and is async.
 async function resolveIdentity(request) {
-  const identity = await resolveIdentity(request);
+  const identity = getRequestIdentity(request);
   if (identity) {
     return identity;
   }

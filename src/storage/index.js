@@ -21,10 +21,17 @@ async function createStorage(config) {
     }
   }
 
-  await storage.ensureAdminUser({
-    username: config.dashboardUsername,
-    passwordHash: config.dashboardPasswordHash
-  });
+  // A transient failure here must not reject storagePromise: an unhandled rejection
+  // at module load crashes the Functions worker before any function can be indexed.
+  try {
+    await storage.ensureAdminUser({
+      username: config.dashboardUsername,
+      passwordHash: config.dashboardPasswordHash
+    });
+  } catch (err) {
+    console.error('[storage] Failed to bootstrap the admin profile; it will be retried next cold start.', err);
+  }
+
   return storage;
 }
 
