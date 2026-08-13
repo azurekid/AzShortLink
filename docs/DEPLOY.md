@@ -138,6 +138,26 @@ az ad app federated-credential create \
   }'
 ```
 
+> **Case sensitivity:** `<YOUR_GITHUB_ORG>/<YOUR_REPO>` in `subject` must exactly match the
+> casing of your GitHub org and repo names (e.g. `azurekid/AzShortLink`). Since August 2024,
+> Entra ID rejects federated credential subjects that only match case-insensitively, causing
+> `AADSTS7002138: No matching federated identity record found`. If you already created the
+> credential with the wrong case, fix it in place:
+> ```bash
+> CRED_ID=$(az ad app federated-credential list --id "$APP_ID" \
+>   --query "[?name=='github-main'].id" --output tsv)
+>
+> az ad app federated-credential update \
+>   --id "$APP_ID" \
+>   --federated-credential-id "$CRED_ID" \
+>   --parameters '{
+>     "name": "github-main",
+>     "issuer": "https://token.actions.githubusercontent.com",
+>     "subject": "repo:azurekid/AzShortLink:ref:refs/heads/main",
+>     "audiences": ["api://AzureADTokenExchange"]
+>   }'
+> ```
+
 ### 5.2  Add GitHub repository secrets
 
 Go to **Settings → Secrets and variables → Actions** in your repository and add:
