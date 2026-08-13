@@ -172,6 +172,27 @@ class TableStorage {
     });
   }
 
+  async deleteUser(userId) {
+    const id = String(userId).trim();
+    const existing = await this.getUser(id);
+    if (!existing) {
+      return false;
+    }
+
+    if (existing.apiKeyHash) {
+      try {
+        await this.client.deleteEntity(APIKEY_PARTITION_KEY, existing.apiKeyHash);
+      } catch (err) {
+        if (!err || err.statusCode !== 404) {
+          throw err;
+        }
+      }
+    }
+
+    await this.client.deleteEntity(USER_PARTITION_KEY, id);
+    return true;
+  }
+
   static async create(connectionString, tableName) {
     const client = TableClient.fromConnectionString(connectionString, tableName);
     try {
@@ -287,16 +308,21 @@ class TableStorage {
   }
 
   async appendAuditEvent(entry) {
+    // `timestamp` is a reserved property on TableEntity (mapped to the service-assigned
+    // Timestamp metadata), so a custom `entry.timestamp` would be silently dropped by the
+    // SDK. Store it under `eventTime` instead and translate back in listAuditEvents.
+    const { timestamp, ...rest } = entry;
     await this.client.createEntity({
       partitionKey: AUDIT_PARTITION_KEY,
       rowKey: generateAuditRowKey(),
-      ...entry
+      eventTime: timestamp,
+      ...rest
     });
 
     // Bounded, best-effort purge so a single write never scans/deletes the whole log.
     const cutoff = retentionCutoffIso();
     const expired = this.client.listEntities({
-      queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and timestamp lt '${cutoff}'` }
+      queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and eventTime lt '${cutoff}'` }
     });
     let deleted = 0;
     for await (const item of expired) {
@@ -316,12 +342,12 @@ class TableStorage {
     const cutoff = sinceIso || retentionCutoffIso();
     const events = [];
     const entities = this.client.listEntities({
-      queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and timestamp ge '${cutoff}'` }
+      queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and eventTime ge '${cutoff}'` }
     });
 
     for await (const item of entities) {
       events.push({
-        timestamp: item.timestamp,
+        timestamp: item.eventTime || '',
         action: item.action,
         actorId: item.actorId || '',
         actorUsername: item.actorUsername || 'anonymous',

@@ -190,9 +190,39 @@ app.http('root', {
     return {
       status: 302,
       headers: {
-        location: '/dashboard',
+        location: '/dashboard/login',
         'cache-control': 'no-store'
       }
+    };
+  }
+});
+
+app.http('dashboard', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'dashboard',
+  handler: async (request) => {
+    if (!dashboardAuthConfigured()) {
+      return dashboardConfigErrorResponse();
+    }
+
+    if (!isDashboardSessionValid(request, config)) {
+      return {
+        status: 302,
+        headers: { location: '/dashboard/login', 'cache-control': 'no-store' }
+      };
+    }
+
+    return {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        ...SECURITY_HEADERS
+      },
+      body: renderDashboard(config.baseUrl, {
+        user: getSessionIdentity(request, config)
+      })
     };
   }
 });
@@ -492,36 +522,6 @@ function clearAttempts(ip) {
   loginAttempts.delete(ip);
 }
 
-app.http('dashboard', {
-  methods: ['GET'],
-  authLevel: 'anonymous',
-  route: 'dashboard',
-  handler: async (request) => {
-    if (!dashboardAuthConfigured()) {
-      return dashboardConfigErrorResponse();
-    }
-
-    if (!isDashboardSessionValid(request, config)) {
-      return {
-        status: 302,
-        headers: { location: '/dashboard/login', 'cache-control': 'no-store' }
-      };
-    }
-
-    return {
-      status: 200,
-      headers: {
-        'content-type': 'text/html; charset=utf-8',
-        'cache-control': 'no-store',
-        ...SECURITY_HEADERS
-      },
-      body: renderDashboard(config.baseUrl, {
-        user: getSessionIdentity(request, config)
-      })
-    };
-  }
-});
-
 app.http('dashboardLoginPage', {
   methods: ['GET'],
   authLevel: 'anonymous',
@@ -686,6 +686,51 @@ app.http('createUser', {
         return unavailableStorageResponse(err);
       }
       return { status: 500, jsonBody: { error: 'Unable to create user.' } };
+    }
+  }
+});
+
+app.http('deleteUser', {
+  methods: ['DELETE'],
+  authLevel: 'anonymous',
+  route: 'api/users/{username}',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') {
+      return unauthorizedResponse();
+    }
+
+    const username = decodeURIComponent(request.params.username || '').trim();
+    if (!username) {
+      return { status: 400, jsonBody: { error: 'Username is required.' } };
+    }
+    if (username === identity.username) {
+      return { status: 400, jsonBody: { error: 'You cannot delete your own profile.' } };
+    }
+    if (username === config.dashboardUsername.trim()) {
+      return { status: 400, jsonBody: { error: 'The primary admin profile cannot be deleted.' } };
+    }
+
+    try {
+      const storage = await storagePromise;
+      const deleted = await storage.deleteUser(username);
+      if (!deleted) {
+        return { status: 404, jsonBody: { error: 'Profile not found.' } };
+      }
+
+      await recordAuditEvent(storage, {
+        action: ACTIONS.USER_DELETED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request),
+        details: { deletedUsername: username }
+      });
+      return { status: 204 };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      return { status: 500, jsonBody: { error: 'Unable to delete user.' } };
     }
   }
 });

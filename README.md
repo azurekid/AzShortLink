@@ -16,6 +16,7 @@ A low-cost Azure Functions URL shortener with authenticated link creation, redir
 - `POST /api/profile/password` so users can rotate their own password
 - `POST /api/profile/apikey` issues a personal API key scoped to the signed-in profile
 - `GET /api/users` (admin) lists every profile with its link count
+- `DELETE /api/users/{username}` (admin) removes a profile (not your own, not the primary admin)
 - `GET /api/audit` (admin) queries the 30-day security audit trail for your SIEM
 - `GET /custom.css` serves `src/custom.css` so you can override the theme without touching app code
 - Admin-created user profiles with bcrypt password hashes and signed sessions
@@ -120,6 +121,7 @@ Every security-relevant action is recorded to Azure Table Storage (partition `AU
 | `LINK_CREATED` | Who created a link, its code, and the target URL |
 | `LINK_DELETED` | Who deleted a link, and whether it was an admin acting on someone else's link |
 | `USER_CREATED` | Admin-created profiles |
+| `USER_DELETED` | Admin-deleted profiles |
 | `PASSWORD_CHANGED` | Self-service password rotation |
 | `API_KEY_ROTATED` | Personal API key generation |
 

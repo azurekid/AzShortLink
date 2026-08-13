@@ -84,6 +84,21 @@ class InMemoryStorage {
     });
   }
 
+  async deleteUser(userId) {
+    const id = String(userId).trim();
+    const user = this.users.get(id);
+    if (!user) {
+      return false;
+    }
+
+    if (user.apiKeyHash) {
+      this.apiKeys.delete(user.apiKeyHash);
+    }
+
+    this.users.delete(id);
+    return true;
+  }
+
   async createLink({ code, targetUrl, createdAt, ownerId = '' }) {
     if (this.items.has(code)) {
       const err = new Error('Alias already exists');

@@ -63,6 +63,10 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async deleteUser() {
+    throw this.createError();
+  }
+
   async appendAuditEvent() {
     throw this.createError();
   }

@@ -175,8 +175,8 @@ function renderDashboard(baseUrl, options = {}) {
         <section class="card span-full">
           <div class="card-header"><h2>Profiles</h2><button id="load-users" class="button-secondary button-compact" type="button">Refresh</button></div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Username</th><th>Display name</th><th>Role</th><th>Links</th><th>Created</th></tr></thead>
-            <tbody id="users-body"><tr><td colspan="5">No profiles loaded yet.</td></tr></tbody>
+            <thead><tr><th>Username</th><th>Display name</th><th>Role</th><th>Links</th><th>Created</th><th></th></tr></thead>
+            <tbody id="users-body"><tr><td colspan="6">No profiles loaded yet.</td></tr></tbody>
           </table></div>
         </section>
         <section class="card" id="user-panel">
@@ -214,6 +214,7 @@ function renderDashboard(baseUrl, options = {}) {
                 <option value="LINK_CREATED">Link created</option>
                 <option value="LINK_DELETED">Link deleted</option>
                 <option value="USER_CREATED">User created</option>
+                <option value="USER_DELETED">User deleted</option>
                 <option value="PASSWORD_CHANGED">Password changed</option>
                 <option value="API_KEY_ROTATED">API key rotated</option>
               </select>
@@ -369,6 +370,7 @@ ${HEAD_ASSETS}
   </main>
   <script>
     const IS_ADMIN = ${isAdmin ? 'true' : 'false'};
+    const CURRENT_USERNAME = '${safeUsername}';
     const BASE_URL = '${safeBaseUrl}';
     const COLSPAN = IS_ADMIN ? 6 : 5;
     const statusEl = document.getElementById('status');
@@ -534,16 +536,31 @@ ${HEAD_ASSETS}
       if (!body) return;
       try {
         const data = await apiRequest('/api/users');
-        if (!data.users.length) { body.innerHTML = '<tr><td colspan="5">No profiles found.</td></tr>'; return; }
-        body.innerHTML = data.users.map((item) =>
-          '<tr><td class="mono">' + escapeHtml(item.username) + '</td><td>' + escapeHtml(item.displayName || '-') + '</td>' +
-          '<td><span class="pill ' + (item.role === 'admin' ? 'admin' : '') + '">' + escapeHtml(item.role) + '</span></td>' +
-          '<td>' + escapeHtml(item.linkCount ?? 0) + '</td><td>' + escapeHtml(item.createdAt || '-') + '</td></tr>'
-        ).join('');
-      } catch (error) { body.innerHTML = '<tr><td colspan="5">' + escapeHtml(error.message) + '</td></tr>'; }
+        if (!data.users.length) { body.innerHTML = '<tr><td colspan="6">No profiles found.</td></tr>'; return; }
+        body.innerHTML = data.users.map((item) => {
+          const canDelete = item.username !== CURRENT_USERNAME;
+          const deleteCell = canDelete
+            ? '<td><button class="button-danger button-compact" type="button" data-delete-user="' + escapeHtml(item.username) + '">Delete</button></td>'
+            : '<td></td>';
+          return '<tr><td class="mono">' + escapeHtml(item.username) + '</td><td>' + escapeHtml(item.displayName || '-') + '</td>' +
+            '<td><span class="pill ' + (item.role === 'admin' ? 'admin' : '') + '">' + escapeHtml(item.role) + '</span></td>' +
+            '<td>' + escapeHtml(item.linkCount ?? 0) + '</td><td>' + escapeHtml(item.createdAt || '-') + '</td>' + deleteCell + '</tr>';
+        }).join('');
+      } catch (error) { body.innerHTML = '<tr><td colspan="6">' + escapeHtml(error.message) + '</td></tr>'; }
     }
     const loadUsersButton = document.getElementById('load-users');
     if (loadUsersButton) loadUsersButton.addEventListener('click', loadUsers);
+    const usersBodyEl = document.getElementById('users-body');
+    if (usersBodyEl) usersBodyEl.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-delete-user]');
+      if (!button) return;
+      const username = button.dataset.deleteUser;
+      if (!window.confirm('Delete profile "' + username + '"? This cannot be undone.')) return;
+      try {
+        await apiRequest('/api/users/' + encodeURIComponent(username), { method: 'DELETE' });
+        await loadUsers();
+      } catch (error) { window.alert(error.message); }
+    });
 
     let latestAuditEvents = [];
     function buildAuditQuery() {
