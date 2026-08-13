@@ -11,6 +11,7 @@ const { renderUserDashboard } = require('./src/dashboard/user');
 const { renderAdminDashboard } = require('./src/dashboard/admin');
 const { renderLoginPage } = require('./src/loginPage');
 const { renderSignupPage } = require('./src/signupPage');
+const { renderNotFoundPage } = require('./src/notFoundPage');
 const {
   verifyCredentials,
   createSessionToken,
@@ -283,9 +284,8 @@ registerHttp('redirectUrl', {
     if (!result) {
       return {
         status: 404,
-        jsonBody: {
-          error: 'Short URL not found.'
-        }
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+        body: renderNotFoundPage()
       };
     }
 
