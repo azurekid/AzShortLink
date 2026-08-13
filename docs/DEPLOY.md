@@ -66,6 +66,7 @@ Notes:
 - `SHORTLINK_TABLE_NAME` is created by the template and also verified at runtime by the app.
 - The app does **not** use Azure Storage Queues today, so no queue resources are provisioned.
 - CORS is configured from `corsAllowedOrigins` + `localDevCorsAllowedOrigins`, which are merged and exposed as an output.
+- **Expect `503 Service Unavailable` right after this step.** `WEBSITE_RUN_FROM_PACKAGE=1` tells the Function App to run from a deployed zip package, which doesn't exist yet — this is normal until you complete [Section 4](#4-deploy-the-application-code) and isn't a deployment failure.
 
 Capture the function app name from the outputs:
 
