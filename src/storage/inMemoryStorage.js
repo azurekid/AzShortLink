@@ -7,6 +7,7 @@ class InMemoryStorage {
     this.items = new Map();
     this.users = new Map();
     this.apiKeys = new Map();
+    this.invites = new Map();
     this.auditEvents = new Map();
     this.tableName = options.tableName || '';
   }
@@ -97,6 +98,33 @@ class InMemoryStorage {
 
     this.users.delete(id);
     return true;
+  }
+
+  async createInvite({ code, createdBy, createdAt }) {
+    this.invites.set(code, { code, createdBy, createdAt, redeemed: false, redeemedBy: '', redeemedAt: '' });
+  }
+
+  async getInvite(code) {
+    const invite = this.invites.get(String(code).trim());
+    return invite ? { ...invite } : null;
+  }
+
+  async listInvites() {
+    return Array.from(this.invites.values()).map((invite) => ({ ...invite }));
+  }
+
+  async redeemInvite(code, redeemedBy, redeemedAt) {
+    const invite = this.invites.get(String(code).trim());
+    if (!invite || invite.redeemed) {
+      return false;
+    }
+
+    this.invites.set(invite.code, { ...invite, redeemed: true, redeemedBy, redeemedAt });
+    return true;
+  }
+
+  async deleteInvite(code) {
+    this.invites.delete(String(code).trim());
   }
 
   async createLink({ code, targetUrl, createdAt, ownerId = '' }) {

@@ -69,6 +69,26 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async createInvite() {
+    throw this.createError();
+  }
+
+  async getInvite() {
+    throw this.createError();
+  }
+
+  async listInvites() {
+    throw this.createError();
+  }
+
+  async redeemInvite() {
+    throw this.createError();
+  }
+
+  async deleteInvite() {
+    throw this.createError();
+  }
+
   async appendAuditEvent() {
     throw this.createError();
   }

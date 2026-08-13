@@ -6,6 +6,7 @@ const { retentionCutoffIso, generateAuditRowKey } = require('../audit');
 const PARTITION_KEY = 'LINK';
 const USER_PARTITION_KEY = 'USER';
 const APIKEY_PARTITION_KEY = 'APIKEY';
+const INVITE_PARTITION_KEY = 'INVITE';
 const AUDIT_PARTITION_KEY = 'AUDIT';
 
 function parseAgentStats(value) {
@@ -199,6 +200,82 @@ class TableStorage {
 
     await this.usersClient.deleteEntity(USER_PARTITION_KEY, id);
     return true;
+  }
+
+  async createInvite({ code, createdBy, createdAt }) {
+    await this.usersClient.createEntity({
+      partitionKey: INVITE_PARTITION_KEY,
+      rowKey: code,
+      createdBy,
+      createdAt,
+      redeemed: false,
+      redeemedBy: '',
+      redeemedAt: ''
+    });
+  }
+
+  async getInvite(code) {
+    try {
+      const item = await this.usersClient.getEntity(INVITE_PARTITION_KEY, String(code).trim());
+      return {
+        code: item.rowKey,
+        createdBy: item.createdBy || '',
+        createdAt: item.createdAt || '',
+        redeemed: Boolean(item.redeemed),
+        redeemedBy: item.redeemedBy || '',
+        redeemedAt: item.redeemedAt || ''
+      };
+    } catch (err) {
+      if (err && err.statusCode === 404) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  async listInvites() {
+    const invites = [];
+    const entities = this.usersClient.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${INVITE_PARTITION_KEY}'` }
+    });
+
+    for await (const item of entities) {
+      invites.push({
+        code: item.rowKey,
+        createdBy: item.createdBy || '',
+        createdAt: item.createdAt || '',
+        redeemed: Boolean(item.redeemed),
+        redeemedBy: item.redeemedBy || '',
+        redeemedAt: item.redeemedAt || ''
+      });
+    }
+
+    return invites;
+  }
+
+  // Returns false (without throwing) if the invite is missing or was already redeemed, so
+  // callers can treat a lost race as a normal "already used" outcome rather than an error.
+  async redeemInvite(code, redeemedBy, redeemedAt) {
+    const existing = await this.getInvite(code);
+    if (!existing || existing.redeemed) {
+      return false;
+    }
+
+    await this.usersClient.updateEntity(
+      { partitionKey: INVITE_PARTITION_KEY, rowKey: String(code).trim(), redeemed: true, redeemedBy, redeemedAt },
+      'Merge'
+    );
+    return true;
+  }
+
+  async deleteInvite(code) {
+    try {
+      await this.usersClient.deleteEntity(INVITE_PARTITION_KEY, String(code).trim());
+    } catch (err) {
+      if (!err || err.statusCode !== 404) {
+        throw err;
+      }
+    }
   }
 
   static async create(connectionString, tableNames) {

@@ -8,11 +8,14 @@ const { TableStorage } = require('../src/storage/tableStorage');
 function makeFakeClient({ entities = [] } = {}) {
   const created = [];
   const deleted = [];
+  const updated = [];
   return {
     created,
     deleted,
+    updated,
     async createEntity(entity) {
       created.push(entity);
+      entities.push(entity);
     },
     async getEntity(partitionKey, rowKey) {
       const found = entities.find((item) => item.partitionKey === partitionKey && item.rowKey === rowKey);
@@ -22,6 +25,16 @@ function makeFakeClient({ entities = [] } = {}) {
         throw err;
       }
       return found;
+    },
+    async updateEntity(entity) {
+      updated.push(entity);
+      const index = entities.findIndex((item) => item.partitionKey === entity.partitionKey && item.rowKey === entity.rowKey);
+      if (index === -1) {
+        const err = new Error('not found');
+        err.statusCode = 404;
+        throw err;
+      }
+      entities[index] = { ...entities[index], ...entity };
     },
     async deleteEntity(partitionKey, rowKey) {
       deleted.push({ partitionKey, rowKey });
@@ -130,4 +143,60 @@ test('getHealthDetails reports each table independently', async () => {
   assert.equal(health.table.name, 'Links');
   assert.equal(health.usersTable.name, 'Users');
   assert.equal(health.auditTable.name, 'Audit');
+});
+
+test('createInvite and getInvite round trip an unredeemed invite', async () => {
+  const { storage, usersClient } = makeStorage();
+
+  await storage.createInvite({ code: 'abc123', createdBy: 'admin', createdAt: '2026-01-01T00:00:00.000Z' });
+  const invite = await storage.getInvite('abc123');
+
+  assert.equal(usersClient.created[0].partitionKey, 'INVITE');
+  assert.deepEqual(invite, {
+    code: 'abc123',
+    createdBy: 'admin',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    redeemed: false,
+    redeemedBy: '',
+    redeemedAt: ''
+  });
+});
+
+test('listInvites returns every invite regardless of redeemed state', async () => {
+  const { storage } = makeStorage({
+    usersEntities: [
+      { partitionKey: 'INVITE', rowKey: 'one', createdBy: 'admin', createdAt: '2026-01-01T00:00:00.000Z', redeemed: false },
+      { partitionKey: 'INVITE', rowKey: 'two', createdBy: 'admin', createdAt: '2026-01-02T00:00:00.000Z', redeemed: true, redeemedBy: 'bob' }
+    ]
+  });
+
+  const invites = await storage.listInvites();
+
+  assert.equal(invites.length, 2);
+  assert.equal(invites.find((invite) => invite.code === 'two').redeemedBy, 'bob');
+});
+
+test('redeemInvite marks an unredeemed invite as used and rejects a second redemption', async () => {
+  const { storage } = makeStorage({
+    usersEntities: [{ partitionKey: 'INVITE', rowKey: 'abc123', createdBy: 'admin', createdAt: '2026-01-01T00:00:00.000Z', redeemed: false }]
+  });
+
+  const firstAttempt = await storage.redeemInvite('abc123', 'bob', '2026-01-02T00:00:00.000Z');
+  const secondAttempt = await storage.redeemInvite('abc123', 'carol', '2026-01-03T00:00:00.000Z');
+  const invite = await storage.getInvite('abc123');
+
+  assert.equal(firstAttempt, true);
+  assert.equal(secondAttempt, false);
+  assert.equal(invite.redeemed, true);
+  assert.equal(invite.redeemedBy, 'bob');
+});
+
+test('deleteInvite removes the invite entity from the users table', async () => {
+  const { storage, usersClient } = makeStorage({
+    usersEntities: [{ partitionKey: 'INVITE', rowKey: 'abc123', createdBy: 'admin', createdAt: '2026-01-01T00:00:00.000Z', redeemed: false }]
+  });
+
+  await storage.deleteInvite('abc123');
+
+  assert.deepEqual(usersClient.deleted, [{ partitionKey: 'INVITE', rowKey: 'abc123' }]);
 });

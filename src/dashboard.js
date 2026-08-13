@@ -201,6 +201,14 @@ function renderDashboard(baseUrl, options = {}) {
           </form>
           <div id="reset-password-status" class="status" role="status" aria-live="polite"></div>
         </section>
+        <section class="card span-full">
+          <div class="card-header"><h2>Invite links</h2><button id="create-invite" class="button-secondary button-compact" type="button">Create invite link</button></div>
+          <div id="invite-status" class="status" role="status" aria-live="polite"></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Invite URL</th><th>Created by</th><th>Created</th><th>Status</th><th></th></tr></thead>
+            <tbody id="invites-body"><tr><td colspan="5">No invite links loaded yet.</td></tr></tbody>
+          </table></div>
+        </section>
         <section class="card">
           <div class="card-header"><h2>Service health</h2><button id="load-health" class="button-secondary button-compact" type="button">Check</button></div>
           <div id="health-body" class="stack"><p>Run a health check to view storage and configuration state.</p></div>
@@ -230,6 +238,9 @@ function renderDashboard(baseUrl, options = {}) {
                 <option value="PASSWORD_CHANGED">Password changed</option>
                 <option value="PASSWORD_RESET_BY_ADMIN">Password reset by admin</option>
                 <option value="API_KEY_ROTATED">API key rotated</option>
+                <option value="INVITE_CREATED">Invite created</option>
+                <option value="INVITE_REVOKED">Invite revoked</option>
+                <option value="INVITE_REDEEMED">Invite redeemed</option>
               </select>
             </div>
             <div class="field"><label for="audit-filter-actor">Actor (username)</label><input id="audit-filter-actor" type="text" placeholder="e.g. admin" /></div>
@@ -405,7 +416,7 @@ ${HEAD_ASSETS}
         document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
         document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.id !== tab.dataset.panel; });
         if (tab.dataset.panel === 'panel-analytics') loadAnalytics();
-        if (tab.dataset.panel === 'panel-admin') loadUsers();
+        if (tab.dataset.panel === 'panel-admin') { loadUsers(); loadInvites(); }
         if (tab.dataset.panel === 'panel-audit') loadAuditLog();
         if (tab.dataset.panel === 'panel-account') loadProfile();
       });
@@ -696,6 +707,44 @@ ${HEAD_ASSETS}
         userForm.reset();
         await loadUsers();
       } catch (error) { setPanelStatus('user-status', error.message, 'error'); }
+    });
+    async function loadInvites() {
+      const body = document.getElementById('invites-body');
+      if (!body) return;
+      try {
+        const data = await apiRequest('/api/invites');
+        if (!data.invites.length) { body.innerHTML = '<tr><td colspan="5">No invite links yet.</td></tr>'; return; }
+        body.innerHTML = data.invites.map((invite) => {
+          const status = invite.redeemed
+            ? '<span class="pill">Redeemed by ' + escapeHtml(invite.redeemedBy || '-') + '</span>'
+            : '<span class="pill up">Active</span>';
+          const actions = invite.redeemed ? '' :
+            '<button class="button-danger button-compact" type="button" data-revoke-invite="' + escapeHtml(invite.code) + '">Revoke</button>';
+          return '<tr><td class="mono">' + escapeHtml(invite.inviteUrl) + '</td><td class="mono">' + escapeHtml(invite.createdBy || '-') + '</td>' +
+            '<td>' + escapeHtml(invite.createdAt || '-') + '</td><td>' + status + '</td><td class="actions">' + actions + '</td></tr>';
+        }).join('');
+      } catch (error) { body.innerHTML = '<tr><td colspan="5">' + escapeHtml(error.message) + '</td></tr>'; }
+    }
+    const createInviteButton = document.getElementById('create-invite');
+    if (createInviteButton) createInviteButton.addEventListener('click', async () => {
+      setPanelStatus('invite-status', 'Creating invite link...');
+      try {
+        const invite = await apiRequest('/api/invites', { method: 'POST' });
+        try { await navigator.clipboard.writeText(invite.inviteUrl); setPanelStatus('invite-status', 'Invite link created and copied: ' + invite.inviteUrl, 'success'); }
+        catch { setPanelStatus('invite-status', 'Invite link created: ' + invite.inviteUrl, 'success'); }
+        await loadInvites();
+      } catch (error) { setPanelStatus('invite-status', error.message, 'error'); }
+    });
+    const invitesBodyEl = document.getElementById('invites-body');
+    if (invitesBodyEl) invitesBodyEl.addEventListener('click', async (event) => {
+      const revokeButton = event.target.closest('[data-revoke-invite]');
+      if (!revokeButton) return;
+      const code = revokeButton.dataset.revokeInvite;
+      if (!window.confirm('Revoke this invite link? It can no longer be used to sign up.')) return;
+      try {
+        await apiRequest('/api/invites/' + encodeURIComponent(code), { method: 'DELETE' });
+        await loadInvites();
+      } catch (error) { window.alert(error.message); }
     });
     loadStats();
   </script>

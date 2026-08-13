@@ -160,6 +160,55 @@ class ShortLinkService {
     return true;
   }
 
+  // An invite link is a regular shortlink whose code doubles as the invite's identity, so
+  // creating one reuses the same alias-generation/retry logic as createShortLink.
+  async createInviteLink(createdBy = '') {
+    const createdAt = this.now();
+
+    for (let i = 0; i < MAX_GENERATION_ATTEMPTS; i += 1) {
+      const code = this.aliasGenerator();
+      const targetUrl = `${this.baseUrl}/dashboard/signup?invite=${code}`;
+
+      try {
+        await this.storage.createLink({ code, targetUrl, createdAt, ownerId: createdBy });
+      } catch (err) {
+        if (err && err.code === 'ALIAS_EXISTS') {
+          continue;
+        }
+        throw err;
+      }
+
+      await this.storage.createInvite({ code, createdBy, createdAt });
+      return { code, inviteUrl: `${this.baseUrl}/${code}`, createdAt };
+    }
+
+    const err = new Error('Unable to generate a unique invite link, please retry.');
+    err.code = 'GENERATION_FAILED';
+    throw err;
+  }
+
+  async revokeInviteLink(code) {
+    const normalizedCode = normalizeAlias(code);
+    if (!normalizedCode) {
+      return false;
+    }
+
+    const invite = await this.storage.getInvite(normalizedCode);
+    if (!invite) {
+      return false;
+    }
+
+    if (invite.redeemed) {
+      const err = new Error('This invite link has already been redeemed.');
+      err.code = 'INVITE_REDEEMED';
+      throw err;
+    }
+
+    await this.storage.deleteInvite(normalizedCode);
+    await this.storage.deleteLink(normalizedCode);
+    return true;
+  }
+
   async getAnalytics(ownerId = '') {
     const links = await this.storage.listLinks(1000, ownerId);
     const totalRedirects = links.reduce((sum, link) => sum + (Number(link.redirectCount) || 0), 0);

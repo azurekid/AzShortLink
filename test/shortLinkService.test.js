@@ -248,3 +248,78 @@ test('reports degraded storage diagnostics when storage is unavailable', async (
   assert.equal(health.status, 'degraded');
   assert.equal(health.storage.table.status, 'down');
 });
+
+test('creates an invite link as a shortlink pointing at the signup page', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, {
+    baseUrl: 'https://azhk.in',
+    aliasGenerator: () => 'invite01',
+    now: () => '2026-01-01T00:00:00.000Z'
+  });
+
+  const invite = await service.createInviteLink('admin');
+
+  assert.equal(invite.code, 'invite01');
+  assert.equal(invite.inviteUrl, 'https://azhk.in/invite01');
+
+  const link = await storage.getLink('invite01');
+  assert.equal(link.targetUrl, 'https://azhk.in/dashboard/signup?invite=invite01');
+
+  const storedInvite = await storage.getInvite('invite01');
+  assert.equal(storedInvite.createdBy, 'admin');
+  assert.equal(storedInvite.redeemed, false);
+});
+
+test('retries invite alias generation on collision', async () => {
+  const storage = new InMemoryStorage();
+  let attempt = 0;
+  const service = new ShortLinkService(storage, {
+    baseUrl: 'https://azhk.in',
+    aliasGenerator: () => (attempt++ === 0 ? 'taken' : 'free01'),
+    now: () => '2026-01-01T00:00:00.000Z'
+  });
+  await storage.createLink({ code: 'taken', targetUrl: 'https://example.com', createdAt: '2026-01-01T00:00:00.000Z' });
+
+  const invite = await service.createInviteLink('admin');
+
+  assert.equal(invite.code, 'free01');
+});
+
+test('revokes an unredeemed invite link and removes its shortlink', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, {
+    baseUrl: 'https://azhk.in',
+    aliasGenerator: () => 'invite01',
+    now: () => '2026-01-01T00:00:00.000Z'
+  });
+  await service.createInviteLink('admin');
+
+  const revoked = await service.revokeInviteLink('invite01');
+
+  assert.equal(revoked, true);
+  assert.equal(await storage.getInvite('invite01'), null);
+  assert.equal(await storage.getLink('invite01'), null);
+});
+
+test('rejects revoking an already-redeemed invite link', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, {
+    baseUrl: 'https://azhk.in',
+    aliasGenerator: () => 'invite01',
+    now: () => '2026-01-01T00:00:00.000Z'
+  });
+  await service.createInviteLink('admin');
+  await storage.redeemInvite('invite01', 'bob', '2026-01-02T00:00:00.000Z');
+
+  await assert.rejects(
+    () => service.revokeInviteLink('invite01'),
+    (err) => err.code === 'INVITE_REDEEMED'
+  );
+});
+
+test('revokeInviteLink returns false for an unknown code', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, { baseUrl: 'https://azhk.in' });
+
+  assert.equal(await service.revokeInviteLink('missing'), false);
+});

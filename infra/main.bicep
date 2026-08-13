@@ -179,6 +179,12 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
           value: '1'
         }
         {
+          // Without this, Azure serves its built-in "Functions app is up and running" splash
+          // page for GET / on custom domains, hiding our own root route handler.
+          name: 'AzureWebJobsDisableHomepage'
+          value: 'true'
+        }
+        {
           name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
           value: appInsights.properties.InstrumentationKey
         }

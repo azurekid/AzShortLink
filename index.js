@@ -9,6 +9,7 @@ const { createStorage } = require('./src/storage');
 const { ShortLinkService } = require('./src/service/shortLinkService');
 const { renderDashboard } = require('./src/dashboard');
 const { renderLoginPage } = require('./src/loginPage');
+const { renderSignupPage } = require('./src/signupPage');
 const {
   verifyCredentials,
   createSessionToken,
@@ -634,6 +635,174 @@ app.http('dashboardLogout', {
   }
 });
 
+app.http('dashboardSignupPage', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'dashboard/signup',
+  handler: async (request) => {
+    const inviteCode = new URL(request.url).searchParams.get('invite') || '';
+
+    try {
+      const storage = await storagePromise;
+      const invite = inviteCode ? await storage.getInvite(inviteCode) : null;
+      if (!invite || invite.redeemed) {
+        return {
+          status: invite ? 410 : 404,
+          headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+          body: renderSignupPage({
+            error: invite ? 'This invite link has already been used.' : 'This invite link is invalid or has expired.'
+          })
+        };
+      }
+
+      return {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+        body: renderSignupPage({ invite: inviteCode })
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      throw err;
+    }
+  }
+});
+
+app.http('dashboardSignupSubmit', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'dashboard/signup',
+  handler: async (request) => {
+    const contentType = request.headers.get('content-type') || '';
+    let inviteCode = '';
+    let username = '';
+    let displayName = '';
+    let password = '';
+
+    try {
+      if (contentType.includes('application/json')) {
+        const body = await request.json();
+        inviteCode = body.invite || '';
+        username = body.username || '';
+        displayName = body.displayName || '';
+        password = body.password || '';
+      } else {
+        const form = new URLSearchParams(await request.text());
+        inviteCode = form.get('invite') || '';
+        username = form.get('username') || '';
+        displayName = form.get('displayName') || '';
+        password = form.get('password') || '';
+      }
+    } catch {
+      return {
+        status: 400,
+        headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+        body: renderSignupPage({ invite: inviteCode, error: 'Invalid request body.' })
+      };
+    }
+
+    inviteCode = String(inviteCode).trim();
+    username = String(username).trim();
+    displayName = (String(displayName).trim() || username);
+
+    const storage = await storagePromise;
+    let invite;
+    try {
+      invite = await storage.getInvite(inviteCode);
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      throw err;
+    }
+
+    if (!invite || invite.redeemed) {
+      return {
+        status: invite ? 410 : 404,
+        headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+        body: renderSignupPage({
+          error: invite ? 'This invite link has already been used.' : 'This invite link is invalid or has expired.'
+        })
+      };
+    }
+
+    if (!/^[A-Za-z0-9._-]{3,64}$/.test(username) || !displayName || password.length < 12) {
+      return {
+        status: 400,
+        headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+        body: renderSignupPage({
+          invite: inviteCode,
+          error: 'Username must be 3-64 safe characters and password must be at least 12 characters.'
+        })
+      };
+    }
+
+    try {
+      const createdAt = new Date().toISOString();
+      const user = await storage.createUser({
+        username,
+        displayName,
+        passwordHash: await bcrypt.hash(password, 12),
+        role: 'user',
+        createdAt
+      });
+
+      const redeemed = await storage.redeemInvite(inviteCode, user.id, createdAt);
+      if (!redeemed) {
+        // Lost a race with another signup using the same invite; undo the just-created account.
+        await storage.deleteUser(user.id);
+        return {
+          status: 409,
+          headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+          body: renderSignupPage({ error: 'This invite link has already been used.' })
+        };
+      }
+
+      await recordAuditEvent(storage, {
+        action: ACTIONS.USER_CREATED,
+        actorId: user.id,
+        actorUsername: user.username,
+        ip: getClientIp(request),
+        details: { createdUsername: username, viaInvite: inviteCode }
+      });
+      await recordAuditEvent(storage, {
+        action: ACTIONS.INVITE_REDEEMED,
+        actorId: user.id,
+        actorUsername: user.username,
+        ip: getClientIp(request),
+        details: { code: inviteCode }
+      });
+
+      const token = createSessionToken(user, config.dashboardSessionSecret);
+      return {
+        status: 302,
+        headers: {
+          location: '/dashboard',
+          'cache-control': 'no-store',
+          'set-cookie': buildSessionCookie(token, request)
+        }
+      };
+    } catch (err) {
+      if (err.code === 'USER_EXISTS') {
+        return {
+          status: 409,
+          headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+          body: renderSignupPage({ invite: inviteCode, error: 'That username is already taken.' })
+        };
+      }
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      return {
+        status: 500,
+        headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+        body: renderSignupPage({ invite: inviteCode, error: 'Unable to create your account.' })
+      };
+    }
+  }
+});
+
 app.http('createUser', {
   methods: ['POST'],
   authLevel: 'anonymous',
@@ -686,6 +855,106 @@ app.http('createUser', {
         return unavailableStorageResponse(err);
       }
       return { status: 500, jsonBody: { error: 'Unable to create user.' } };
+    }
+  }
+});
+
+app.http('createInvite', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/invites',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') {
+      return unauthorizedResponse();
+    }
+
+    try {
+      const service = await servicePromise;
+      const invite = await service.createInviteLink(identity.id);
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.INVITE_CREATED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request),
+        details: { code: invite.code }
+      });
+      return { status: 201, jsonBody: invite };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      return { status: 500, jsonBody: { error: 'Unable to create invite link.' } };
+    }
+  }
+});
+
+app.http('listInvites', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/invites',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') {
+      return unauthorizedResponse();
+    }
+
+    try {
+      const storage = await storagePromise;
+      const invites = await storage.listInvites();
+      return {
+        status: 200,
+        jsonBody: {
+          total: invites.length,
+          invites: invites.map((invite) => ({ ...invite, inviteUrl: `${config.baseUrl}/${invite.code}` }))
+        }
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      throw err;
+    }
+  }
+});
+
+app.http('revokeInvite', {
+  methods: ['DELETE'],
+  authLevel: 'anonymous',
+  route: 'api/invites/{code}',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') {
+      return unauthorizedResponse();
+    }
+
+    const code = decodeURIComponent(request.params.code || '').trim();
+
+    try {
+      const service = await servicePromise;
+      const revoked = await service.revokeInviteLink(code);
+      if (!revoked) {
+        return { status: 404, jsonBody: { error: 'Invite link not found.' } };
+      }
+
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.INVITE_REVOKED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request),
+        details: { code }
+      });
+      return { status: 204 };
+    } catch (err) {
+      if (err.code === 'INVITE_REDEEMED') {
+        return { status: 409, jsonBody: { error: err.message } };
+      }
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      return { status: 500, jsonBody: { error: 'Unable to revoke invite link.' } };
     }
   }
 });
