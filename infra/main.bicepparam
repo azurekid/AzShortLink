@@ -30,6 +30,6 @@ param appServicePlanSkuTier = 'Basic'
 //         base64 PFX first, see docs/DEPLOY.md):
 //   openssl pkcs12 -export -out cert.pfx -inkey privkey.pem -in cert.pem -certfile chain.pem -passout pass:<password>
 //   base64 -w0 cert.pfx > cert.pfx.b64
-param useManagedCertificate = true
+param useManagedCertificate = false
 param customCertificatePfxBase64 = readEnvironmentVariable('SHORTLINK_CERT_PFX_BASE64', '')
 param customCertificatePassword = readEnvironmentVariable('SHORTLINK_CERT_PFX_PASSWORD', '')
