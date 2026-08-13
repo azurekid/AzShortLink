@@ -26,6 +26,9 @@ function makeFakeClient({ entities = [] } = {}) {
     async deleteEntity(partitionKey, rowKey) {
       deleted.push({ partitionKey, rowKey });
     },
+    async getAccessPolicy() {
+      return {};
+    },
     listEntities({ queryOptions } = {}) {
       const filter = (queryOptions && queryOptions.filter) || '';
       const matches = entities.filter((item) => filter.includes(`'${item.partitionKey}'`));
@@ -38,9 +41,29 @@ function makeFakeClient({ entities = [] } = {}) {
   };
 }
 
+function makeStorage({ usersEntities = [], auditEntities = [] } = {}) {
+  const linksClient = makeFakeClient();
+  const usersClient = makeFakeClient({ entities: usersEntities });
+  const auditClient = makeFakeClient({ entities: auditEntities });
+  const storage = new TableStorage(
+    { linksClient, usersClient, auditClient },
+    { linksTableName: 'Links', usersTableName: 'Users', auditTableName: 'Audit' }
+  );
+  return { storage, linksClient, usersClient, auditClient };
+}
+
+test('users, links and audit entities are written to separate table clients', async () => {
+  const { storage, usersClient, auditClient } = makeStorage();
+
+  await storage.createUser({ username: 'alice', passwordHash: 'hash', displayName: 'Alice', createdAt: '2026-01-01T00:00:00.000Z' });
+  await storage.appendAuditEvent({ timestamp: '2026-01-01T00:00:00.000Z', action: 'LOGIN_SUCCESS', actorUsername: 'alice', ip: '', details: '{}' });
+
+  assert.equal(usersClient.created.length, 1);
+  assert.equal(auditClient.created.length, 1);
+});
+
 test('appendAuditEvent stores the event time under eventTime, not the reserved timestamp property', async () => {
-  const client = makeFakeClient();
-  const storage = new TableStorage(client, { tableName: 'test' });
+  const { storage, auditClient } = makeStorage();
 
   await storage.appendAuditEvent({
     timestamp: '2026-01-01T00:00:00.000Z',
@@ -51,18 +74,17 @@ test('appendAuditEvent stores the event time under eventTime, not the reserved t
     details: '{}'
   });
 
-  assert.equal(client.created.length, 1);
-  assert.equal(client.created[0].eventTime, '2026-01-01T00:00:00.000Z');
-  assert.equal('timestamp' in client.created[0], false);
+  assert.equal(auditClient.created.length, 1);
+  assert.equal(auditClient.created[0].eventTime, '2026-01-01T00:00:00.000Z');
+  assert.equal('timestamp' in auditClient.created[0], false);
 });
 
 test('listAuditEvents maps the stored eventTime back onto timestamp', async () => {
-  const client = makeFakeClient({
-    entities: [
+  const { storage } = makeStorage({
+    auditEntities: [
       { partitionKey: 'AUDIT', rowKey: '1', eventTime: '2026-01-01T00:00:00.000Z', action: 'LOGIN_SUCCESS', actorUsername: 'admin' }
     ]
   });
-  const storage = new TableStorage(client, { tableName: 'test' });
 
   const events = await storage.listAuditEvents({ limit: 10 });
 
@@ -71,27 +93,41 @@ test('listAuditEvents maps the stored eventTime back onto timestamp', async () =
   assert.equal(events[0].action, 'LOGIN_SUCCESS');
 });
 
-test('deleteUser removes the user entity and any associated API key entity', async () => {
-  const client = makeFakeClient({
-    entities: [
+test('deleteUser removes the user entity and any associated API key entity from the users table', async () => {
+  const { storage, usersClient } = makeStorage({
+    usersEntities: [
       { partitionKey: 'USER', rowKey: 'alice', username: 'alice', displayName: 'Alice', role: 'user', apiKeyHash: 'hash123' }
     ]
   });
-  const storage = new TableStorage(client, { tableName: 'test' });
 
   const result = await storage.deleteUser('alice');
 
   assert.equal(result, true);
-  assert.deepEqual(client.deleted, [
+  assert.deepEqual(usersClient.deleted, [
     { partitionKey: 'APIKEY', rowKey: 'hash123' },
     { partitionKey: 'USER', rowKey: 'alice' }
   ]);
 });
 
 test('deleteUser returns false when the profile does not exist', async () => {
-  const client = makeFakeClient();
-  const storage = new TableStorage(client, { tableName: 'test' });
+  const { storage, usersClient } = makeStorage();
 
   assert.equal(await storage.deleteUser('missing'), false);
-  assert.equal(client.deleted.length, 0);
+  assert.equal(usersClient.deleted.length, 0);
+});
+
+test('getHealthDetails reports each table independently', async () => {
+  const { storage, auditClient } = makeStorage();
+  auditClient.getAccessPolicy = async () => {
+    throw new Error('down');
+  };
+
+  const health = await storage.getHealthDetails();
+
+  assert.equal(health.table.status, 'up');
+  assert.equal(health.usersTable.status, 'up');
+  assert.equal(health.auditTable.status, 'down');
+  assert.equal(health.table.name, 'Links');
+  assert.equal(health.usersTable.name, 'Users');
+  assert.equal(health.auditTable.name, 'Audit');
 });

@@ -27,15 +27,23 @@ function parseAgentStats(value) {
 }
 
 class TableStorage {
-  constructor(client, options = {}) {
-    this.client = client;
-    this.tableName = options.tableName || '';
+  constructor({ linksClient, usersClient, auditClient }, options = {}) {
+    this.linksClient = linksClient;
+    this.usersClient = usersClient;
+    this.auditClient = auditClient;
+    this.tableNames = {
+      links: options.linksTableName || '',
+      users: options.usersTableName || '',
+      audit: options.auditTableName || ''
+    };
+    // Kept for callers/tests that only care about the primary (links) table name.
+    this.tableName = this.tableNames.links;
   }
 
   async createUser({ username, passwordHash, displayName, role = 'user', createdAt }) {
     const userId = username.trim();
     try {
-      await this.client.createEntity({
+      await this.usersClient.createEntity({
         partitionKey: USER_PARTITION_KEY,
         rowKey: userId,
         username: userId,
@@ -63,7 +71,7 @@ class TableStorage {
     }
 
     try {
-      const item = await this.client.getEntity(USER_PARTITION_KEY, userId);
+      const item = await this.usersClient.getEntity(USER_PARTITION_KEY, userId);
       return {
         id: item.rowKey,
         username: item.username,
@@ -85,7 +93,7 @@ class TableStorage {
 
   async listUsers() {
     const users = [];
-    const entities = this.client.listEntities({
+    const entities = this.usersClient.listEntities({
       queryOptions: { filter: `PartitionKey eq '${USER_PARTITION_KEY}'` }
     });
 
@@ -105,7 +113,7 @@ class TableStorage {
 
   async updateUserPassword(userId, passwordHash) {
     try {
-      await this.client.updateEntity(
+      await this.usersClient.updateEntity(
         { partitionKey: USER_PARTITION_KEY, rowKey: String(userId).trim(), passwordHash },
         'Merge'
       );
@@ -127,7 +135,7 @@ class TableStorage {
 
     if (existing.apiKeyHash) {
       try {
-        await this.client.deleteEntity(APIKEY_PARTITION_KEY, existing.apiKeyHash);
+        await this.usersClient.deleteEntity(APIKEY_PARTITION_KEY, existing.apiKeyHash);
       } catch (err) {
         if (!err || err.statusCode !== 404) {
           throw err;
@@ -135,11 +143,11 @@ class TableStorage {
       }
     }
 
-    await this.client.upsertEntity(
+    await this.usersClient.upsertEntity(
       { partitionKey: APIKEY_PARTITION_KEY, rowKey: hash, ownerId: id, createdAt },
       'Replace'
     );
-    await this.client.updateEntity(
+    await this.usersClient.updateEntity(
       { partitionKey: USER_PARTITION_KEY, rowKey: id, apiKeyHash: hash, apiKeyPrefix: displayPrefix, apiKeyCreatedAt: createdAt },
       'Merge'
     );
@@ -148,7 +156,7 @@ class TableStorage {
 
   async getUserByApiKeyHash(hash) {
     try {
-      const entity = await this.client.getEntity(APIKEY_PARTITION_KEY, hash);
+      const entity = await this.usersClient.getEntity(APIKEY_PARTITION_KEY, hash);
       return this.getUser(entity.ownerId);
     } catch (err) {
       if (err && err.statusCode === 404) {
@@ -181,7 +189,7 @@ class TableStorage {
 
     if (existing.apiKeyHash) {
       try {
-        await this.client.deleteEntity(APIKEY_PARTITION_KEY, existing.apiKeyHash);
+        await this.usersClient.deleteEntity(APIKEY_PARTITION_KEY, existing.apiKeyHash);
       } catch (err) {
         if (!err || err.statusCode !== 404) {
           throw err;
@@ -189,26 +197,42 @@ class TableStorage {
       }
     }
 
-    await this.client.deleteEntity(USER_PARTITION_KEY, id);
+    await this.usersClient.deleteEntity(USER_PARTITION_KEY, id);
     return true;
   }
 
-  static async create(connectionString, tableName) {
-    const client = TableClient.fromConnectionString(connectionString, tableName);
-    try {
-      await client.createTable();
-    } catch (err) {
-      if (!err || (err.statusCode !== 409 && err.code !== 'TableAlreadyExists')) {
-        throw err;
+  static async create(connectionString, tableNames) {
+    const names = typeof tableNames === 'string'
+      ? { links: tableNames, users: `${tableNames}Users`, audit: `${tableNames}Audit` }
+      : tableNames;
+
+    async function createClient(name) {
+      const client = TableClient.fromConnectionString(connectionString, name);
+      try {
+        await client.createTable();
+      } catch (err) {
+        if (!err || (err.statusCode !== 409 && err.code !== 'TableAlreadyExists')) {
+          throw err;
+        }
       }
+      return client;
     }
 
-    return new TableStorage(client, { tableName });
+    const [linksClient, usersClient, auditClient] = await Promise.all([
+      createClient(names.links),
+      createClient(names.users),
+      createClient(names.audit)
+    ]);
+
+    return new TableStorage(
+      { linksClient, usersClient, auditClient },
+      { linksTableName: names.links, usersTableName: names.users, auditTableName: names.audit }
+    );
   }
 
   async createLink({ code, targetUrl, createdAt, ownerId = '' }) {
     try {
-      await this.client.createEntity({
+      await this.linksClient.createEntity({
         partitionKey: PARTITION_KEY,
         rowKey: code,
         targetUrl,
@@ -229,7 +253,7 @@ class TableStorage {
 
   async getLink(code) {
     try {
-      const item = await this.client.getEntity(PARTITION_KEY, code);
+      const item = await this.linksClient.getEntity(PARTITION_KEY, code);
       return {
         code: item.rowKey,
         targetUrl: item.targetUrl,
@@ -258,12 +282,12 @@ class TableStorage {
       entity.agentStats = JSON.stringify(agentStats);
     }
 
-    await this.client.updateEntity(entity, 'Merge');
+    await this.linksClient.updateEntity(entity, 'Merge');
   }
 
   async deleteLink(code) {
     try {
-      await this.client.deleteEntity(PARTITION_KEY, code);
+      await this.linksClient.deleteEntity(PARTITION_KEY, code);
     } catch (err) {
       if (!err || err.statusCode !== 404) {
         throw err;
@@ -273,7 +297,7 @@ class TableStorage {
 
   async listLinks(limit = 250, ownerId = '') {
     const links = [];
-    const entities = this.client.listEntities({ queryOptions: { filter: `PartitionKey eq '${PARTITION_KEY}'` } });
+    const entities = this.linksClient.listEntities({ queryOptions: { filter: `PartitionKey eq '${PARTITION_KEY}'` } });
 
     for await (const item of entities) {
       if (ownerId && item.ownerId !== ownerId) {
@@ -300,7 +324,11 @@ class TableStorage {
 
   async ping() {
     try {
-      await this.client.getAccessPolicy();
+      await Promise.all([
+        this.linksClient.getAccessPolicy(),
+        this.usersClient.getAccessPolicy(),
+        this.auditClient.getAccessPolicy()
+      ]);
       return true;
     } catch {
       return false;
@@ -312,7 +340,7 @@ class TableStorage {
     // Timestamp metadata), so a custom `entry.timestamp` would be silently dropped by the
     // SDK. Store it under `eventTime` instead and translate back in listAuditEvents.
     const { timestamp, ...rest } = entry;
-    await this.client.createEntity({
+    await this.auditClient.createEntity({
       partitionKey: AUDIT_PARTITION_KEY,
       rowKey: generateAuditRowKey(),
       eventTime: timestamp,
@@ -321,7 +349,7 @@ class TableStorage {
 
     // Bounded, best-effort purge so a single write never scans/deletes the whole log.
     const cutoff = retentionCutoffIso();
-    const expired = this.client.listEntities({
+    const expired = this.auditClient.listEntities({
       queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and eventTime lt '${cutoff}'` }
     });
     let deleted = 0;
@@ -330,7 +358,7 @@ class TableStorage {
         break;
       }
       try {
-        await this.client.deleteEntity(AUDIT_PARTITION_KEY, item.rowKey);
+        await this.auditClient.deleteEntity(AUDIT_PARTITION_KEY, item.rowKey);
         deleted += 1;
       } catch {
         // Best-effort: leave it for the next write to retry.
@@ -341,7 +369,7 @@ class TableStorage {
   async listAuditEvents({ limit = 200, sinceIso = '' } = {}) {
     const cutoff = sinceIso || retentionCutoffIso();
     const events = [];
-    const entities = this.client.listEntities({
+    const entities = this.auditClient.listEntities({
       queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and eventTime ge '${cutoff}'` }
     });
 
@@ -360,16 +388,27 @@ class TableStorage {
   }
 
   async getHealthDetails() {
-    const healthy = await this.ping();
+    const [linksUp, usersUp, auditUp] = await Promise.all([
+      this.linksClient.getAccessPolicy().then(() => true).catch(() => false),
+      this.usersClient.getAccessPolicy().then(() => true).catch(() => false),
+      this.auditClient.getAccessPolicy().then(() => true).catch(() => false)
+    ]);
+    const healthy = linksUp && usersUp && auditUp;
+    const describe = (name, up) => ({
+      name,
+      status: up ? 'up' : 'down',
+      message: up
+        ? 'Azure Table Storage is reachable.'
+        : 'Azure Table Storage check failed. Verify AzureWebJobsStorage/AZURE_STORAGE_CONNECTION_STRING and data-plane access.'
+    });
+
     return {
       type: 'table',
-      table: {
-        name: this.tableName,
-        status: healthy ? 'up' : 'down',
-        message: healthy
-          ? 'Azure Table Storage is reachable.'
-          : 'Azure Table Storage check failed. Verify AzureWebJobsStorage/AZURE_STORAGE_CONNECTION_STRING and data-plane access.'
-      },
+      // Links, users and audit data live in separate tables so a single compromised
+      // credential or filter bug can't expose all three data classes at once.
+      table: describe(this.tableNames.links, linksUp),
+      usersTable: describe(this.tableNames.users, usersUp),
+      auditTable: describe(this.tableNames.audit, auditUp),
       queue: {
         status: 'not-required',
         names: [],

@@ -12,6 +12,8 @@ param prefix = 'azsl'
 param baseUrl     = 'https://azhk.in'
 param customDomain = 'azhk.in'
 // param tableName   = 'AzShortLinks'
+// param usersTableName = 'AzShortLinksUsers'
+// param auditTableName = 'AzShortLinksAudit'
 // param corsAllowedOrigins = [
 //   'https://azhk.in'
 // ]

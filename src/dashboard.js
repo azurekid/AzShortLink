@@ -676,10 +676,13 @@ ${HEAD_ASSETS}
       try {
         const response = await fetch('/api/health', { headers: { accept: 'application/json' } });
         const data = await response.json();
-        const tableStatus = (data.storage && data.storage.table && data.storage.table.status) || 'unknown';
+        const storage = data.storage || {};
+        const pill = (status) => '<span class="pill ' + (status === 'up' ? 'up' : 'down') + '">' + escapeHtml(status || 'unknown') + '</span>';
         body.innerHTML = '<div class="stat-grid">' +
           '<div class="stat"><span class="stat-value">' + escapeHtml(data.status || 'unknown') + '</span><span class="stat-label">Overall</span></div>' +
-          '<div class="stat"><span class="stat-value"><span class="pill ' + (tableStatus === 'up' ? 'up' : 'down') + '">' + escapeHtml(tableStatus) + '</span></span><span class="stat-label">Table storage</span></div>' +
+          '<div class="stat"><span class="stat-value">' + pill((storage.table || {}).status) + '</span><span class="stat-label">Links table</span></div>' +
+          '<div class="stat"><span class="stat-value">' + pill((storage.usersTable || {}).status) + '</span><span class="stat-label">Users table</span></div>' +
+          '<div class="stat"><span class="stat-value">' + pill((storage.auditTable || {}).status) + '</span><span class="stat-label">Audit table</span></div>' +
           '</div><p class="mono">Checked at ' + escapeHtml(data.checkedAt || '-') + '</p>';
       } catch (error) { body.innerHTML = '<p class="status error">' + escapeHtml(error.message) + '</p>'; }
     });

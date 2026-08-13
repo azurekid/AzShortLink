@@ -44,8 +44,14 @@ param dashboardPasswordHash string = ''
 @secure()
 param dashboardSessionSecret string = ''
 
-@description('Table Storage table name.')
+@description('Table Storage table name for short-link data.')
 param tableName string = 'AzShortLinks'
+
+@description('Table Storage table name for user profiles, credentials and API keys. Kept separate from link data so a filter bug or scoped credential cannot cross-leak between them.')
+param usersTableName string = '${tableName}Users'
+
+@description('Table Storage table name for the security audit trail. Kept separate from link and user data to limit the blast radius of a misconfiguration.')
+param auditTableName string = '${tableName}Audit'
 
 @description('Allowed production/browser origins for CORS (include the deployed UI origin).')
 param corsAllowedOrigins array = [
@@ -83,8 +89,27 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   }
 }
 
+resource shortLinkTableService 'Microsoft.Storage/storageAccounts/tableServices@2023-01-01' = {
+  parent: storageAccount
+  name: 'default'
+}
+
+// Links, users/credentials and the audit trail are stored in separate tables (not just
+// separate partitions in one table) so a filter bug, overly-broad SAS, or a scoped RBAC
+// role assignment can't cross-leak between data classes of differing sensitivity.
 resource shortLinkTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-01-01' = {
-  name: '${storageAccount.name}/default/${tableName}'
+  parent: shortLinkTableService
+  name: tableName
+}
+
+resource usersTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-01-01' = {
+  parent: shortLinkTableService
+  name: usersTableName
+}
+
+resource auditTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-01-01' = {
+  parent: shortLinkTableService
+  name: auditTableName
 }
 
 var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
@@ -172,6 +197,14 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         {
           name: 'SHORTLINK_TABLE_NAME'
           value: tableName
+        }
+        {
+          name: 'SHORTLINK_USERS_TABLE_NAME'
+          value: usersTableName
+        }
+        {
+          name: 'SHORTLINK_AUDIT_TABLE_NAME'
+          value: auditTableName
         }
         {
           name: 'DASHBOARD_USERNAME'
@@ -297,6 +330,8 @@ output functionAppHostname string = functionApp.properties.defaultHostName
 output customDomainVerificationId string = functionApp.properties.customDomainVerificationId
 output storageAccountName string = storageAccount.name
 output shortLinkTableName string = tableName
+output usersTableName string = usersTableName
+output auditTableName string = auditTableName
 output dashboardUrl string = 'https://${functionApp.properties.defaultHostName}/dashboard'
 output healthUrl string = 'https://${functionApp.properties.defaultHostName}/api/health'
 output allowedCorsOrigins array = effectiveCorsOrigins

@@ -179,6 +179,16 @@ class InMemoryStorage {
         status: 'not-configured',
         message: 'Azure Storage is not configured, so link data is stored in-memory only.'
       },
+      usersTable: {
+        name: '',
+        status: 'not-configured',
+        message: 'Azure Storage is not configured, so profile data is stored in-memory only.'
+      },
+      auditTable: {
+        name: '',
+        status: 'not-configured',
+        message: 'Azure Storage is not configured, so audit data is stored in-memory only.'
+      },
       queue: {
         status: 'not-required',
         names: [],

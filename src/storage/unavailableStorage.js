@@ -3,6 +3,8 @@
 class UnavailableStorage {
   constructor(options = {}) {
     this.tableName = options.tableName || '';
+    this.usersTableName = options.usersTableName || '';
+    this.auditTableName = options.auditTableName || '';
     this.reason = options.reason || new Error('Storage initialization failed.');
   }
 
@@ -84,6 +86,16 @@ class UnavailableStorage {
       type: 'unavailable',
       table: {
         name: this.tableName,
+        status: 'down',
+        message: this.reason.message || 'Storage initialization failed.'
+      },
+      usersTable: {
+        name: this.usersTableName,
+        status: 'down',
+        message: this.reason.message || 'Storage initialization failed.'
+      },
+      auditTable: {
+        name: this.auditTableName,
         status: 'down',
         message: this.reason.message || 'Storage initialization failed.'
       },

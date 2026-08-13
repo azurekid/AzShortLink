@@ -8,6 +8,7 @@ A low-cost Azure Functions URL shortener with authenticated link creation, redir
 - Random or custom alias support (`uniqueValue`, `alias`, or `code` in payload)
 - `GET /{code}` redirect to original URL
 - Azure Table Storage backend with explicit table provisioning in Bicep
+- Link data, user profiles/credentials, and the audit trail are stored in **separate Azure Tables** (not just separate partitions) to limit the blast radius of a filter bug, an overly-broad SAS token, or a scoped RBAC role assignment
 - `GET /api/stats/{code?}` (authenticated) for stats JSON
 - `GET /dashboard` authenticated UI for creating and inspecting profile-owned short links
 - Tabbed dashboard: Links, Statistics, Account, and an admin-only Admin tab
@@ -32,7 +33,9 @@ Set these app settings in Azure Function App:
 - `SHORTLINK_API_KEY` (required, used via `x-api-key` header or Authorization token header)
 - `PUBLIC_BASE_URL` (default: `https://azhk.in`)
 - `AZURE_STORAGE_CONNECTION_STRING` (or `AzureWebJobsStorage`)
-- `SHORTLINK_TABLE_NAME` (default: `AzShortLinks`)
+- `SHORTLINK_TABLE_NAME` (default: `AzShortLinks`) — short link data
+- `SHORTLINK_USERS_TABLE_NAME` (default: `<SHORTLINK_TABLE_NAME>Users`) — user profiles, credentials and API keys
+- `SHORTLINK_AUDIT_TABLE_NAME` (default: `<SHORTLINK_TABLE_NAME>Audit`) — security audit trail
 - `DASHBOARD_USERNAME` (required for the initial admin profile)
 - `DASHBOARD_PASSWORD_HASH` (required; generate with `node scripts/generate-dashboard-hash.js '<password>'`)
 - `DASHBOARD_SESSION_SECRET` (optional; derived from the API key and password hash when omitted)
@@ -114,7 +117,7 @@ API clients may still authenticate with `SHORTLINK_API_KEY`; that key acts as th
 
 ### Audit trail
 
-Every security-relevant action is recorded to Azure Table Storage (partition `AUDIT`) and retained for 30 days:
+Every security-relevant action is recorded to Azure Table Storage (a dedicated audit table, separate from links and user profiles) and retained for 30 days:
 
 | Action | Recorded on |
 |---|---|

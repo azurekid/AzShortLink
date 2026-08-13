@@ -11,11 +11,17 @@ async function createStorage(config) {
     storage = new InMemoryStorage({ tableName: config.tableName });
   } else {
     try {
-      storage = await TableStorage.create(config.storageConnectionString, config.tableName);
+      storage = await TableStorage.create(config.storageConnectionString, {
+        links: config.tableName,
+        users: config.usersTableName,
+        audit: config.auditTableName
+      });
     } catch (err) {
       console.error('[storage] Failed to initialize Azure Table Storage.', err);
       return new UnavailableStorage({
         tableName: config.tableName,
+        usersTableName: config.usersTableName,
+        auditTableName: config.auditTableName,
         reason: err
       });
     }

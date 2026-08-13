@@ -39,7 +39,7 @@ az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
 
 The Bicep template in `infra/main.bicep` creates:
 - **Storage Account** — Table Storage backend + Azure WebJobs storage
-- **Storage Table** — Explicit `${tableName}` table for short-link data
+- **Storage Tables** — three separate tables: `${tableName}` (links), `${usersTableName}` (user profiles/credentials/API keys), and `${auditTableName}` (audit trail). Splitting by data sensitivity limits the blast radius of a filter bug, an overly-broad SAS token, or a scoped RBAC role assignment.
 - **App Service Plan** — Consumption (Y1, Linux) for pay-per-use pricing
 - **Application Insights** — Telemetry and logging
 - **Function App** — Node 22, app settings pre-configured, CORS origins configurable
@@ -70,7 +70,7 @@ echo "DASHBOARD_USERNAME=$DASHBOARD_USERNAME"
 ```
 
 Notes:
-- `SHORTLINK_TABLE_NAME` is created by the template and also verified at runtime by the app.
+- `SHORTLINK_TABLE_NAME`, `SHORTLINK_USERS_TABLE_NAME` and `SHORTLINK_AUDIT_TABLE_NAME` are each created by the template as separate tables and also verified at runtime by the app. The users/audit table names default to `<SHORTLINK_TABLE_NAME>Users`/`<SHORTLINK_TABLE_NAME>Audit` if not overridden.
 - The app does **not** use Azure Storage Queues today, so no queue resources are provisioned.
 - CORS is configured from `corsAllowedOrigins` + `localDevCorsAllowedOrigins`, which are merged and exposed as an output.
 - **Store `DASHBOARD_PASSWORD_HASH` as a secret** (e.g. GitHub Actions secrets, Key Vault) — never commit it. The password itself is never stored, only its bcrypt hash.

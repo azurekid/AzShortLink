@@ -15,9 +15,15 @@ function deriveSessionSecret(passwordHash, apiKey) {
 function getConfig() {
   const apiKey = process.env.SHORTLINK_API_KEY || '';
   const dashboardPasswordHash = process.env.DASHBOARD_PASSWORD_HASH || '';
+  const tableName = process.env.SHORTLINK_TABLE_NAME || 'AzShortLinks';
 
   return {
-    tableName: process.env.SHORTLINK_TABLE_NAME || 'AzShortLinks',
+    tableName,
+    // Users/credentials and the audit log are kept in separate physical tables from link
+    // data so a filter bug, overly-broad SAS, or scoped RBAC role can't cross-leak between
+    // them - splitting by data sensitivity limits the blast radius of a misconfiguration.
+    usersTableName: process.env.SHORTLINK_USERS_TABLE_NAME || `${tableName}Users`,
+    auditTableName: process.env.SHORTLINK_AUDIT_TABLE_NAME || `${tableName}Audit`,
     storageConnectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || process.env.AzureWebJobsStorage || '',
     baseUrl: (process.env.PUBLIC_BASE_URL || 'https://azhk.in').replace(/\/$/, ''),
     apiKey,
