@@ -189,6 +189,18 @@ function renderDashboard(baseUrl, options = {}) {
           </form>
           <div id="user-status" class="status" role="status" aria-live="polite"></div>
         </section>
+        <section class="card" id="reset-password-panel" hidden>
+          <div class="card-header"><h2>Reset password</h2></div>
+          <form id="reset-password-form" class="stack">
+            <p>Resetting password for <span class="mono" id="reset-password-target"></span>.</p>
+            <div class="field"><label for="reset-password-value">New password (min 12 characters)</label><input id="reset-password-value" type="password" minlength="12" autocomplete="new-password" required /></div>
+            <div class="actions">
+              <button type="submit">Reset password</button>
+              <button id="cancel-reset-password" class="button-secondary" type="button">Cancel</button>
+            </div>
+          </form>
+          <div id="reset-password-status" class="status" role="status" aria-live="polite"></div>
+        </section>
         <section class="card">
           <div class="card-header"><h2>Service health</h2><button id="load-health" class="button-secondary button-compact" type="button">Check</button></div>
           <div id="health-body" class="stack"><p>Run a health check to view storage and configuration state.</p></div>
@@ -216,6 +228,7 @@ function renderDashboard(baseUrl, options = {}) {
                 <option value="USER_CREATED">User created</option>
                 <option value="USER_DELETED">User deleted</option>
                 <option value="PASSWORD_CHANGED">Password changed</option>
+                <option value="PASSWORD_RESET_BY_ADMIN">Password reset by admin</option>
                 <option value="API_KEY_ROTATED">API key rotated</option>
               </select>
             </div>
@@ -538,13 +551,13 @@ ${HEAD_ASSETS}
         const data = await apiRequest('/api/users');
         if (!data.users.length) { body.innerHTML = '<tr><td colspan="6">No profiles found.</td></tr>'; return; }
         body.innerHTML = data.users.map((item) => {
-          const canDelete = item.username !== CURRENT_USERNAME;
-          const deleteCell = canDelete
-            ? '<td><button class="button-danger button-compact" type="button" data-delete-user="' + escapeHtml(item.username) + '">Delete</button></td>'
-            : '<td></td>';
+          const isSelf = item.username === CURRENT_USERNAME;
+          const actions = '<button class="button-secondary button-compact" type="button" data-reset-user="' + escapeHtml(item.username) + '">Reset password</button>' +
+            (isSelf ? '' : ' <button class="button-danger button-compact" type="button" data-delete-user="' + escapeHtml(item.username) + '">Delete</button>');
           return '<tr><td class="mono">' + escapeHtml(item.username) + '</td><td>' + escapeHtml(item.displayName || '-') + '</td>' +
             '<td><span class="pill ' + (item.role === 'admin' ? 'admin' : '') + '">' + escapeHtml(item.role) + '</span></td>' +
-            '<td>' + escapeHtml(item.linkCount ?? 0) + '</td><td>' + escapeHtml(item.createdAt || '-') + '</td>' + deleteCell + '</tr>';
+            '<td>' + escapeHtml(item.linkCount ?? 0) + '</td><td>' + escapeHtml(item.createdAt || '-') + '</td>' +
+            '<td class="actions">' + actions + '</td></tr>';
         }).join('');
       } catch (error) { body.innerHTML = '<tr><td colspan="6">' + escapeHtml(error.message) + '</td></tr>'; }
     }
@@ -552,14 +565,46 @@ ${HEAD_ASSETS}
     if (loadUsersButton) loadUsersButton.addEventListener('click', loadUsers);
     const usersBodyEl = document.getElementById('users-body');
     if (usersBodyEl) usersBodyEl.addEventListener('click', async (event) => {
-      const button = event.target.closest('[data-delete-user]');
-      if (!button) return;
-      const username = button.dataset.deleteUser;
-      if (!window.confirm('Delete profile "' + username + '"? This cannot be undone.')) return;
+      const deleteButton = event.target.closest('[data-delete-user]');
+      if (deleteButton) {
+        const username = deleteButton.dataset.deleteUser;
+        if (!window.confirm('Delete profile "' + username + '"? This cannot be undone.')) return;
+        try {
+          await apiRequest('/api/users/' + encodeURIComponent(username), { method: 'DELETE' });
+          await loadUsers();
+        } catch (error) { window.alert(error.message); }
+        return;
+      }
+
+      const resetButton = event.target.closest('[data-reset-user]');
+      if (resetButton) {
+        const username = resetButton.dataset.resetUser;
+        document.getElementById('reset-password-target').textContent = username;
+        document.getElementById('reset-password-form').dataset.username = username;
+        document.getElementById('reset-password-value').value = '';
+        setPanelStatus('reset-password-status', '');
+        document.getElementById('reset-password-panel').hidden = false;
+        document.getElementById('reset-password-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+    document.getElementById('cancel-reset-password').addEventListener('click', () => {
+      document.getElementById('reset-password-panel').hidden = true;
+    });
+    document.getElementById('reset-password-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const username = form.dataset.username;
+      const newPassword = document.getElementById('reset-password-value').value;
+      setPanelStatus('reset-password-status', 'Resetting password...');
       try {
-        await apiRequest('/api/users/' + encodeURIComponent(username), { method: 'DELETE' });
-        await loadUsers();
-      } catch (error) { window.alert(error.message); }
+        await apiRequest('/api/users/' + encodeURIComponent(username) + '/password', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ newPassword })
+        });
+        setPanelStatus('reset-password-status', 'Password reset for "' + username + '".', 'success');
+        setTimeout(() => { document.getElementById('reset-password-panel').hidden = true; }, 1200);
+      } catch (error) { setPanelStatus('reset-password-status', error.message, 'error'); }
     });
 
     let latestAuditEvents = [];

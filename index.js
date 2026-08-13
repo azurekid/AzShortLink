@@ -735,6 +735,60 @@ app.http('deleteUser', {
   }
 });
 
+app.http('resetUserPassword', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/users/{username}/password',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') {
+      return unauthorizedResponse();
+    }
+
+    const username = decodeURIComponent(request.params.username || '').trim();
+    if (!username) {
+      return { status: 400, jsonBody: { error: 'Username is required.' } };
+    }
+    if (username === identity.username) {
+      return { status: 400, jsonBody: { error: 'Use the Account tab to change your own password.' } };
+    }
+
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return { status: 400, jsonBody: { error: 'Request body must be valid JSON.' } };
+    }
+
+    const newPassword = typeof payload.newPassword === 'string' ? payload.newPassword : '';
+    if (newPassword.length < 12) {
+      return { status: 400, jsonBody: { error: 'New password must be at least 12 characters.' } };
+    }
+
+    try {
+      const storage = await storagePromise;
+      const updated = await storage.updateUserPassword(username, await bcrypt.hash(newPassword, 12));
+      if (!updated) {
+        return { status: 404, jsonBody: { error: 'Profile not found.' } };
+      }
+
+      await recordAuditEvent(storage, {
+        action: ACTIONS.PASSWORD_RESET_BY_ADMIN,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request),
+        details: { targetUsername: username }
+      });
+      return { status: 200, jsonBody: { updated: true, message: 'Password reset.' } };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      return { status: 500, jsonBody: { error: 'Unable to reset password.' } };
+    }
+  }
+});
+
 app.http('rotateApiKey', {
   methods: ['POST'],
   authLevel: 'anonymous',
