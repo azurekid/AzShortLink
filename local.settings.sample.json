@@ -6,6 +6,8 @@
     "AZURE_STORAGE_CONNECTION_STRING": "UseDevelopmentStorage=true",
     "SHORTLINK_TABLE_NAME": "AzShortLinks",
     "PUBLIC_BASE_URL": "https://azhk.in",
-    "SHORTLINK_API_KEY": "replace-with-strong-secret"
+    "SHORTLINK_API_KEY": "replace-with-strong-secret",
+    "API_RATE_LIMIT_MAX_REQUESTS": "60",
+    "API_RATE_LIMIT_WINDOW_MS": "60000"
   }
 }

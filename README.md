@@ -39,6 +39,10 @@ Set these app settings in Azure Function App:
 - `DASHBOARD_USERNAME` (required for the initial admin profile)
 - `DASHBOARD_PASSWORD_HASH` (required; generate with `node scripts/generate-dashboard-hash.js '<password>'`)
 - `DASHBOARD_SESSION_SECRET` (optional; derived from the API key and password hash when omitted)
+- `API_RATE_LIMIT_MAX_REQUESTS` (optional; API requests per client IP per window, default `60`)
+- `API_RATE_LIMIT_WINDOW_MS` (optional; rate-limit window in milliseconds, default `60000`)
+
+All `/api/*` endpoints return HTTP `429` with a `Retry-After` header when a client exceeds the limit. The limiter is process-local and keys requests by the first `x-forwarded-for` address, so use an Azure WAF or API gateway for a deployment-wide quota across multiple Function workers.
 
 The app does not use Azure Storage Queues today, so only the table resource is provisioned. `/api/health` reports queue status as `not-required`.
 

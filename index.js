@@ -24,8 +24,36 @@ const {
   timingSafeEqualString
 } = require('./src/auth');
 const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('./src/audit');
+const { createRateLimiter } = require('./src/rateLimiter');
 
 const config = getConfig();
+const apiRateLimiter = createRateLimiter({
+  maxRequests: Number.parseInt(process.env.API_RATE_LIMIT_MAX_REQUESTS || '60', 10),
+  windowMs: Number.parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10)
+});
+
+function rateLimitedHandler(handler) {
+  return async (request, context) => {
+    const result = apiRateLimiter.check(getClientIp(request));
+    if (!result.allowed) {
+      return {
+        status: 429,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'retry-after': String(result.retryAfterSeconds)
+        },
+        jsonBody: { error: 'Too many requests. Try again later.' }
+      };
+    }
+
+    return handler(request, context);
+  };
+}
+
+function registerHttp(name, options) {
+  const handler = options.route.startsWith('api/') ? rateLimitedHandler(options.handler) : options.handler;
+  return app.http(name, { ...options, handler });
+}
 const storagePromise = createStorage(config);
 const servicePromise = storagePromise.then((storage) => new ShortLinkService(storage, { baseUrl: config.baseUrl }));
 // Prevent an unhandled rejection from crashing the worker at cold start; real errors still
@@ -130,7 +158,7 @@ function unavailableStorageResponse(err) {
   };
 }
 
-app.http('shortenUrl', {
+registerHttp('shortenUrl', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'api/shorten',
@@ -184,7 +212,7 @@ app.http('shortenUrl', {
   }
 });
 
-app.http('root', {
+registerHttp('root', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: '',
@@ -199,7 +227,7 @@ app.http('root', {
   }
 });
 
-app.http('dashboard', {
+registerHttp('dashboard', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'dashboard',
@@ -230,7 +258,7 @@ app.http('dashboard', {
   }
 });
 
-app.http('redirectUrl', {
+registerHttp('redirectUrl', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: '{code}',
@@ -271,7 +299,7 @@ app.http('redirectUrl', {
   }
 });
 
-app.http('getStats', {
+registerHttp('getStats', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/stats/{code?}',
@@ -315,7 +343,7 @@ function resolveOwnerScope(request, identity) {
   return new URL(request.url).searchParams.get('scope') === 'mine' ? identity.id : '';
 }
 
-app.http('deleteLink', {
+registerHttp('deleteLink', {
   methods: ['DELETE'],
   authLevel: 'anonymous',
   route: 'api/links/{code}',
@@ -359,7 +387,7 @@ app.http('deleteLink', {
   }
 });
 
-app.http('getAnalytics', {
+registerHttp('getAnalytics', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/analytics',
@@ -384,7 +412,7 @@ app.http('getAnalytics', {
   }
 });
 
-app.http('listUsers', {
+registerHttp('listUsers', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/users',
@@ -419,7 +447,7 @@ app.http('listUsers', {
   }
 });
 
-app.http('changePassword', {
+registerHttp('changePassword', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'api/profile/password',
@@ -534,7 +562,7 @@ const loginThrottle = createAttemptThrottle();
 // Invite codes are bearer tokens for account creation, so guessing them is throttled too.
 const signupThrottle = createAttemptThrottle();
 
-app.http('dashboardLoginPage', {
+registerHttp('dashboardLoginPage', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'dashboard/login',
@@ -555,7 +583,7 @@ app.http('dashboardLoginPage', {
   }
 });
 
-app.http('dashboardLoginSubmit', {
+registerHttp('dashboardLoginSubmit', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'dashboard/login',
@@ -630,7 +658,7 @@ app.http('dashboardLoginSubmit', {
   }
 });
 
-app.http('dashboardLogout', {
+registerHttp('dashboardLogout', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'dashboard/logout',
@@ -657,7 +685,7 @@ app.http('dashboardLogout', {
   }
 });
 
-app.http('dashboardSignupPage', {
+registerHttp('dashboardSignupPage', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'dashboard/signup',
@@ -702,7 +730,7 @@ app.http('dashboardSignupPage', {
   }
 });
 
-app.http('dashboardSignupSubmit', {
+registerHttp('dashboardSignupSubmit', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'dashboard/signup',
@@ -853,7 +881,7 @@ app.http('dashboardSignupSubmit', {
   }
 });
 
-app.http('createUser', {
+registerHttp('createUser', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'api/users',
@@ -909,7 +937,7 @@ app.http('createUser', {
   }
 });
 
-app.http('createInvite', {
+registerHttp('createInvite', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'api/invites',
@@ -949,7 +977,7 @@ app.http('createInvite', {
   }
 });
 
-app.http('getMyInvite', {
+registerHttp('getMyInvite', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/invites/mine',
@@ -976,7 +1004,7 @@ app.http('getMyInvite', {
   }
 });
 
-app.http('listInvites', {
+registerHttp('listInvites', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/invites',
@@ -1005,7 +1033,7 @@ app.http('listInvites', {
   }
 });
 
-app.http('revokeInvite', {
+registerHttp('revokeInvite', {
   methods: ['DELETE'],
   authLevel: 'anonymous',
   route: 'api/invites/{code}',
@@ -1045,7 +1073,7 @@ app.http('revokeInvite', {
   }
 });
 
-app.http('deleteUser', {
+registerHttp('deleteUser', {
   methods: ['DELETE'],
   authLevel: 'anonymous',
   route: 'api/users/{username}',
@@ -1090,7 +1118,7 @@ app.http('deleteUser', {
   }
 });
 
-app.http('resetUserPassword', {
+registerHttp('resetUserPassword', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'api/users/{username}/password',
@@ -1144,7 +1172,7 @@ app.http('resetUserPassword', {
   }
 });
 
-app.http('rotateApiKey', {
+registerHttp('rotateApiKey', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'api/profile/apikey',
@@ -1183,7 +1211,7 @@ app.http('rotateApiKey', {
   }
 });
 
-app.http('getProfile', {
+registerHttp('getProfile', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/profile',
@@ -1216,7 +1244,7 @@ app.http('getProfile', {
   }
 });
 
-app.http('getAuditLog', {
+registerHttp('getAuditLog', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/audit',
@@ -1280,7 +1308,7 @@ app.http('getAuditLog', {
   }
 });
 
-app.http('customCss', {
+registerHttp('customCss', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'custom.css',
@@ -1300,7 +1328,7 @@ app.http('customCss', {
   }
 });
 
-app.http('health', {
+registerHttp('health', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/health',
