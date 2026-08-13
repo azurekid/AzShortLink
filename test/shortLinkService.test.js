@@ -146,6 +146,50 @@ test('keeps usernames case-sensitive', async () => {
   assert.equal((await storage.listUsers()).length, 2);
 });
 
+test('records browser, os, device and referrer breakdowns on redirect', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, { baseUrl: 'https://azhk.in' });
+
+  await service.createShortLink({ url: 'https://one.example', uniqueValue: 'link-one' }, 'user1');
+  await service.resolveShortLink('link-one', {
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+    referrer: 'https://news.example/article'
+  });
+  await service.resolveShortLink('link-one', {
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) AppleWebKit/605.1 Mobile Safari/604.1'
+  });
+
+  const { breakdowns, mostViewed } = await service.getAnalytics('user1');
+  const labels = (rows) => rows.map((row) => row.label);
+
+  assert.equal(mostViewed, 'link-one');
+  assert.ok(labels(breakdowns.browsers).includes('Chrome'));
+  assert.ok(labels(breakdowns.os).includes('Windows'));
+  assert.ok(labels(breakdowns.os).includes('iOS'));
+  assert.deepEqual(labels(breakdowns.devices).sort(), ['desktop', 'mobile']);
+  assert.ok(labels(breakdowns.referrers).includes('news.example'));
+  assert.ok(labels(breakdowns.referrers).includes('direct'));
+});
+
+test('issues personal API keys that resolve back to their owner', async () => {
+  const { generateApiKey, hashApiKey } = require('../src/auth');
+  const storage = new InMemoryStorage();
+
+  await storage.createUser({ username: 'Alice', passwordHash: 'hash', displayName: 'Alice' });
+
+  const first = generateApiKey();
+  await storage.setUserApiKey('Alice', { hash: first.hash, displayPrefix: first.displayPrefix, createdAt: 'now' });
+
+  assert.match(first.key, /^azsl_/);
+  assert.equal((await storage.getUserByApiKeyHash(hashApiKey(first.key))).id, 'Alice');
+
+  const second = generateApiKey();
+  await storage.setUserApiKey('Alice', { hash: second.hash, displayPrefix: second.displayPrefix, createdAt: 'now' });
+
+  assert.equal(await storage.getUserByApiKeyHash(hashApiKey(first.key)), null);
+  assert.equal((await storage.getUserByApiKeyHash(hashApiKey(second.key))).id, 'Alice');
+});
+
 test('reports detailed healthy storage diagnostics', async () => {
   const storage = {
     async getHealthDetails() {

@@ -16,6 +16,9 @@ const {
   buildClearedSessionCookie,
   isDashboardSessionValid,
   getSessionIdentity,
+  generateApiKey,
+  hashApiKey,
+  API_KEY_PREFIX,
   timingSafeEqualString
 } = require('./src/auth');
 
@@ -26,7 +29,14 @@ const SECURITY_HEADERS = {
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
   'referrer-policy': 'no-referrer',
-  'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+  'content-security-policy': [
+    "default-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+    "script-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https://azurehacking.com https://blackcatwebshop.z13.web.core.windows.net",
+    "connect-src 'self'"
+  ].join('; ')
 };
 
 function configurationErrorResponse() {
@@ -66,6 +76,31 @@ function getRequestIdentity(request) {
   return null;
 }
 
+// Personal keys are looked up by hash, so this needs storage and is async.
+async function resolveIdentity(request) {
+  const identity = await resolveIdentity(request);
+  if (identity) {
+    return identity;
+  }
+
+  const presented = getApiKeyFromRequest(request);
+  if (!presented.startsWith(API_KEY_PREFIX)) {
+    return null;
+  }
+
+  try {
+    const storage = await storagePromise;
+    const user = await storage.getUserByApiKeyHash(hashApiKey(presented));
+    if (!user) {
+      return null;
+    }
+
+    return { id: user.id, username: user.username, displayName: user.displayName, role: user.role };
+  } catch {
+    return null;
+  }
+}
+
 function unauthorizedResponse() {
   return {
     status: 401,
@@ -93,7 +128,7 @@ app.http('shortenUrl', {
   authLevel: 'anonymous',
   route: 'api/shorten',
   handler: async (request) => {
-    const identity = getRequestIdentity(request);
+    const identity = await resolveIdentity(request);
     if (!identity) {
       return unauthorizedResponse();
     }
@@ -159,7 +194,10 @@ app.http('redirectUrl', {
     let result;
 
     try {
-      result = await service.resolveShortLink(code);
+      result = await service.resolveShortLink(code, {
+        userAgent: request.headers.get('user-agent'),
+        referrer: request.headers.get('referer') || request.headers.get('referrer')
+      });
     } catch (err) {
       if (isStorageUnavailableError(err)) {
         return unavailableStorageResponse(err);
@@ -192,7 +230,7 @@ app.http('getStats', {
   authLevel: 'anonymous',
   route: 'api/stats/{code?}',
   handler: async (request) => {
-    const identity = getRequestIdentity(request);
+    const identity = await resolveIdentity(request);
     if (!identity) {
       return unauthorizedResponse();
     }
@@ -236,7 +274,7 @@ app.http('deleteLink', {
   authLevel: 'anonymous',
   route: 'api/links/{code}',
   handler: async (request) => {
-    const identity = getRequestIdentity(request);
+    const identity = await resolveIdentity(request);
     if (!identity) {
       return unauthorizedResponse();
     }
@@ -271,7 +309,7 @@ app.http('getAnalytics', {
   authLevel: 'anonymous',
   route: 'api/analytics',
   handler: async (request) => {
-    const identity = getRequestIdentity(request);
+    const identity = await resolveIdentity(request);
     if (!identity) {
       return unauthorizedResponse();
     }
@@ -296,7 +334,7 @@ app.http('listUsers', {
   authLevel: 'anonymous',
   route: 'api/users',
   handler: async (request) => {
-    const identity = getRequestIdentity(request);
+    const identity = await resolveIdentity(request);
     if (!identity || identity.role !== 'admin') {
       return unauthorizedResponse();
     }
@@ -562,7 +600,7 @@ app.http('createUser', {
   authLevel: 'anonymous',
   route: 'api/users',
   handler: async (request) => {
-    const identity = getRequestIdentity(request);
+    const identity = await resolveIdentity(request);
     if (!identity || identity.role !== 'admin') {
       return unauthorizedResponse();
     }
@@ -602,6 +640,70 @@ app.http('createUser', {
         return unavailableStorageResponse(err);
       }
       return { status: 500, jsonBody: { error: 'Unable to create user.' } };
+    }
+  }
+});
+
+app.http('rotateApiKey', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/profile/apikey',
+  handler: async (request) => {
+    const identity = getSessionIdentity(request, config);
+    if (!identity) {
+      return unauthorizedResponse();
+    }
+
+    try {
+      const storage = await storagePromise;
+      const { key, hash, displayPrefix } = generateApiKey();
+      const createdAt = new Date().toISOString();
+      const saved = await storage.setUserApiKey(identity.id, { hash, displayPrefix, createdAt });
+      if (!saved) {
+        return { status: 404, jsonBody: { error: 'Profile not found.' } };
+      }
+
+      // The plaintext key is returned once and never stored.
+      return { status: 201, jsonBody: { apiKey: key, displayPrefix, createdAt } };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      return { status: 500, jsonBody: { error: 'Unable to generate an API key.' } };
+    }
+  }
+});
+
+app.http('getProfile', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/profile',
+  handler: async (request) => {
+    const identity = getSessionIdentity(request, config);
+    if (!identity) {
+      return unauthorizedResponse();
+    }
+
+    try {
+      const storage = await storagePromise;
+      const user = await storage.getUser(identity.username);
+      return {
+        status: 200,
+        jsonBody: {
+          username: identity.username,
+          displayName: identity.displayName,
+          role: identity.role,
+          apiKeyPrefix: (user && user.apiKeyPrefix) || '',
+          apiKeyCreatedAt: (user && user.apiKeyCreatedAt) || ''
+        }
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      throw err;
     }
   }
 });

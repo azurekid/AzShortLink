@@ -14,6 +14,7 @@ A low-cost Azure Functions URL shortener with authenticated link creation, redir
 - `DELETE /api/links/{code}` to remove links you own (admins may remove any link)
 - `GET /api/analytics` for aggregated redirect statistics
 - `POST /api/profile/password` so users can rotate their own password
+- `POST /api/profile/apikey` issues a personal API key scoped to the signed-in profile
 - `GET /api/users` (admin) lists every profile with its link count
 - `GET /custom.css` serves `src/custom.css` so you can override the theme without touching app code
 - Admin-created user profiles with bcrypt password hashes and signed sessions
@@ -74,9 +75,9 @@ Body:
 | Tab | Available to | Contents |
 |---|---|---|
 | Links | everyone | Create links, list links, delete links |
-| Statistics | everyone | Totals, averages, top links, recent redirect activity |
-| Account | everyone | Current profile and self-service password change |
-| Admin | admins | All profiles with link counts, add user, service health |
+| Statistics | everyone | Icon stat cards plus bar charts for top links, browsers, operating systems, device types and referrers |
+| Account | everyone | Current profile, self-service password change, personal API key |
+| Admin | admins | All profiles with link counts, add user, service health, redirects by profile |
 
 Admins see every profile's links (with an owner column) and can delete any link. Regular users only ever see and delete their own links. Changing a password signs the user out so they re-authenticate.
 
@@ -87,6 +88,23 @@ Edit `src/custom.css` and redeploy. It is served at `/custom.css` and loaded aft
 ```css
 :root { --accent: #ff7a18; }
 ```
+
+### Personal API keys
+
+Each profile can issue its own API key from **Account → Personal API key**. Keys look like `azsl_<random>`, are shown exactly once, and only a SHA-256 hash is stored. A key inherits its owner's permissions, so links created with it belong to that profile and a non-admin key can only read or delete that profile's links. Generating a new key immediately invalidates the previous one.
+
+```bash
+curl -X POST "https://azhk.in/api/shorten" \
+  -H "x-api-key: azsl_<your-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}'
+```
+
+The deployment-wide `SHORTLINK_API_KEY` still works and maps to the admin profile.
+
+### Redirect telemetry
+
+Each redirect updates per-link counters for browser, operating system, device type, and referrer host, derived from the request's `User-Agent` and `Referer` headers. No IP addresses or personal data are stored, and no extra storage write is added — the counters piggyback on the existing redirect-count update. The Statistics tab renders these as bar charts alongside totals and top links.
 
 API clients may still authenticate with `SHORTLINK_API_KEY`; that key acts as the admin identity. Dashboard users authenticate with their profile credentials.
 

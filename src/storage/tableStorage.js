@@ -4,6 +4,25 @@ const { TableClient } = require('@azure/data-tables');
 
 const PARTITION_KEY = 'LINK';
 const USER_PARTITION_KEY = 'USER';
+const APIKEY_PARTITION_KEY = 'APIKEY';
+
+function parseAgentStats(value) {
+  if (!value) {
+    return { browsers: {}, os: {}, devices: {}, referrers: {} };
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return {
+      browsers: parsed.browsers || {},
+      os: parsed.os || {},
+      devices: parsed.devices || {},
+      referrers: parsed.referrers || {}
+    };
+  } catch {
+    return { browsers: {}, os: {}, devices: {}, referrers: {} };
+  }
+}
 
 class TableStorage {
   constructor(client, options = {}) {
@@ -49,7 +68,10 @@ class TableStorage {
         passwordHash: item.passwordHash,
         displayName: item.displayName || item.username,
         role: item.role || 'user',
-        createdAt: item.createdAt
+        createdAt: item.createdAt,
+        apiKeyHash: item.apiKeyHash || '',
+        apiKeyPrefix: item.apiKeyPrefix || '',
+        apiKeyCreatedAt: item.apiKeyCreatedAt || ''
       };
     } catch (err) {
       if (err && err.statusCode === 404) {
@@ -71,7 +93,8 @@ class TableStorage {
         username: item.username || item.rowKey,
         displayName: item.displayName || item.username || item.rowKey,
         role: item.role || 'user',
-        createdAt: item.createdAt || ''
+        createdAt: item.createdAt || '',
+        apiKeyPrefix: item.apiKeyPrefix || ''
       });
     }
 
@@ -88,6 +111,46 @@ class TableStorage {
     } catch (err) {
       if (err && err.statusCode === 404) {
         return false;
+      }
+      throw err;
+    }
+  }
+
+  async setUserApiKey(userId, { hash, displayPrefix, createdAt }) {
+    const id = String(userId).trim();
+    const existing = await this.getUser(id);
+    if (!existing) {
+      return false;
+    }
+
+    if (existing.apiKeyHash) {
+      try {
+        await this.client.deleteEntity(APIKEY_PARTITION_KEY, existing.apiKeyHash);
+      } catch (err) {
+        if (!err || err.statusCode !== 404) {
+          throw err;
+        }
+      }
+    }
+
+    await this.client.upsertEntity(
+      { partitionKey: APIKEY_PARTITION_KEY, rowKey: hash, ownerId: id, createdAt },
+      'Replace'
+    );
+    await this.client.updateEntity(
+      { partitionKey: USER_PARTITION_KEY, rowKey: id, apiKeyHash: hash, apiKeyPrefix: displayPrefix, apiKeyCreatedAt: createdAt },
+      'Merge'
+    );
+    return true;
+  }
+
+  async getUserByApiKeyHash(hash) {
+    try {
+      const entity = await this.client.getEntity(APIKEY_PARTITION_KEY, hash);
+      return this.getUser(entity.ownerId);
+    } catch (err) {
+      if (err && err.statusCode === 404) {
+        return null;
       }
       throw err;
     }
@@ -150,7 +213,8 @@ class TableStorage {
         createdAt: item.createdAt,
         ownerId: item.ownerId || '',
         redirectCount: Number(item.redirectCount) || 0,
-        lastAccessedAt: item.lastAccessedAt || ''
+        lastAccessedAt: item.lastAccessedAt || '',
+        agentStats: parseAgentStats(item.agentStats)
       };
     } catch (err) {
       if (err && err.statusCode === 404) {
@@ -160,16 +224,18 @@ class TableStorage {
     }
   }
 
-  async updateRedirectStats(code, redirectCount, lastAccessedAt) {
-    await this.client.updateEntity(
-      {
-        partitionKey: PARTITION_KEY,
-        rowKey: code,
-        redirectCount,
-        lastAccessedAt
-      },
-      'Merge'
-    );
+  async updateRedirectStats(code, redirectCount, lastAccessedAt, agentStats) {
+    const entity = {
+      partitionKey: PARTITION_KEY,
+      rowKey: code,
+      redirectCount,
+      lastAccessedAt
+    };
+    if (agentStats) {
+      entity.agentStats = JSON.stringify(agentStats);
+    }
+
+    await this.client.updateEntity(entity, 'Merge');
   }
 
   async deleteLink(code) {
@@ -197,7 +263,8 @@ class TableStorage {
         createdAt: item.createdAt,
         ownerId: item.ownerId || '',
         redirectCount: Number(item.redirectCount) || 0,
-        lastAccessedAt: item.lastAccessedAt || ''
+        lastAccessedAt: item.lastAccessedAt || '',
+        agentStats: parseAgentStats(item.agentStats)
       });
 
       if (links.length >= limit) {

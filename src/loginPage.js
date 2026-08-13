@@ -17,6 +17,10 @@ function renderLoginPage(options = {}) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AzShortLink — Sign in</title>
+  <link rel="icon" type="image/svg+xml" href="https://azurehacking.com/images/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" />
   <style>
     :root {
       color-scheme: dark;
@@ -30,11 +34,11 @@ function renderLoginPage(options = {}) {
       margin:0; min-height:100vh; display:grid; place-items:center; padding:24px;
       color:var(--text); line-height:1.6; font-family:Inter,"Segoe UI",system-ui,sans-serif;
       background:
-        linear-gradient(rgba(10,10,15,.86),rgba(10,10,15,.95)),
-        radial-gradient(circle at 15% 8%,rgba(0,212,255,.20),transparent 34%),
-        radial-gradient(circle at 85% 92%,rgba(124,58,237,.20),transparent 36%),
+        linear-gradient(rgba(10,10,15,.90),rgba(10,10,15,.96)),
+        radial-gradient(circle at 15% 8%,rgba(0,212,255,.16),transparent 34%),
+        radial-gradient(circle at 85% 92%,rgba(124,58,237,.16),transparent 36%),
+        url("https://blackcatwebshop.z13.web.core.windows.net/media/azure-hacking-corp.jpg") center/cover no-repeat fixed,
         var(--bg);
-      background-attachment:fixed;
     }
     body::after {
       content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
@@ -42,9 +46,10 @@ function renderLoginPage(options = {}) {
     }
     form {
       position:relative; z-index:1; width:min(400px,100%); padding:30px;
-      background:color-mix(in srgb,var(--card) 92%,transparent);
+      background:color-mix(in srgb,var(--card) 88%,transparent);
       border:1px solid var(--border); border-radius:10px;
       box-shadow:0 4px 24px rgba(0,0,0,.45);
+      backdrop-filter:blur(6px);
       transition:border-color var(--ease),box-shadow var(--ease);
     }
     form:hover { border-color:var(--border-hover); box-shadow:0 4px 24px rgba(0,0,0,.45),var(--glow); }

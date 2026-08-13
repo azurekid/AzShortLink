@@ -4,6 +4,7 @@ class InMemoryStorage {
   constructor(options = {}) {
     this.items = new Map();
     this.users = new Map();
+    this.apiKeys = new Map();
     this.tableName = options.tableName || '';
   }
 
@@ -46,6 +47,26 @@ class InMemoryStorage {
     return true;
   }
 
+  async setUserApiKey(userId, { hash, displayPrefix, createdAt }) {
+    const user = this.users.get(String(userId).trim());
+    if (!user) {
+      return false;
+    }
+
+    if (user.apiKeyHash) {
+      this.apiKeys.delete(user.apiKeyHash);
+    }
+
+    this.users.set(user.id, { ...user, apiKeyHash: hash, apiKeyPrefix: displayPrefix, apiKeyCreatedAt: createdAt });
+    this.apiKeys.set(hash, user.id);
+    return true;
+  }
+
+  async getUserByApiKeyHash(hash) {
+    const userId = this.apiKeys.get(hash);
+    return userId ? this.getUser(userId) : null;
+  }
+
   async ensureAdminUser({ username, passwordHash }) {
     if (!username || !passwordHash || (await this.getUser(username))) {
       return;
@@ -73,7 +94,8 @@ class InMemoryStorage {
       createdAt,
       ownerId,
       redirectCount: 0,
-      lastAccessedAt: ''
+      lastAccessedAt: '',
+      agentStats: { browsers: {}, os: {}, devices: {}, referrers: {} }
     });
   }
 
@@ -82,7 +104,7 @@ class InMemoryStorage {
     return item ? { ...item } : null;
   }
 
-  async updateRedirectStats(code, redirectCount, lastAccessedAt) {
+  async updateRedirectStats(code, redirectCount, lastAccessedAt, agentStats) {
     const item = this.items.get(code);
     if (!item) {
       return;
@@ -91,7 +113,8 @@ class InMemoryStorage {
     this.items.set(code, {
       ...item,
       redirectCount,
-      lastAccessedAt
+      lastAccessedAt,
+      agentStats: agentStats || item.agentStats
     });
   }
 

@@ -134,8 +134,21 @@ function isDashboardSessionValid(request, config) {
   return Boolean(getSessionIdentity(request, config));
 }
 
+const API_KEY_PREFIX = 'azsl_';
+
+function generateApiKey() {
+  const secret = crypto.randomBytes(32).toString('base64url');
+  const key = `${API_KEY_PREFIX}${secret}`;
+  return { key, hash: hashApiKey(key), displayPrefix: key.slice(0, 12) };
+}
+
+function hashApiKey(key) {
+  return crypto.createHash('sha256').update(String(key)).digest('hex');
+}
+
 module.exports = {
   SESSION_COOKIE_NAME,
+  API_KEY_PREFIX,
   parseCookies,
   createSessionToken,
   verifySessionToken,
@@ -144,5 +157,7 @@ module.exports = {
   buildClearedSessionCookie,
   getSessionIdentity,
   isDashboardSessionValid,
+  generateApiKey,
+  hashApiKey,
   timingSafeEqualString
 };

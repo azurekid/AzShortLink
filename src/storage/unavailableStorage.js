@@ -51,6 +51,14 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async setUserApiKey() {
+    throw this.createError();
+  }
+
+  async getUserByApiKeyHash() {
+    throw this.createError();
+  }
+
   async ensureAdminUser() {
     throw this.createError();
   }

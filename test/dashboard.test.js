@@ -54,3 +54,24 @@ test('escapes the signed-in display name', () => {
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /&lt;img src=x/);
 });
+
+test('uses the azurehacking favicon and background artwork', () => {
+  const html = renderDashboard('https://azhk.in');
+
+  assert.match(html, /azurehacking\.com\/images\/favicon\.svg/);
+  assert.match(html, /azure-hacking-corp\.jpg/);
+  assert.match(html, /font-awesome/);
+  assert.match(html, /class="bg-layer"/);
+});
+
+test('exposes personal API key controls and graphical breakdowns', () => {
+  const html = renderDashboard('https://azhk.in', {
+    user: { username: 'Alice', displayName: 'Alice', role: 'user' }
+  });
+
+  assert.match(html, /id="generate-api-key"/);
+  assert.match(html, /id="api-key-reveal"/);
+  assert.match(html, /id="bars-browsers"/);
+  assert.match(html, /id="bars-devices"/);
+  assert.match(html, /id="bars-referrers"/);
+});

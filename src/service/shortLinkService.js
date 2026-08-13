@@ -1,7 +1,30 @@
 'use strict';
 
+const { parseUserAgent, parseReferrer } = require('../userAgent');
+
 const ALIAS_PATTERN = /^[A-Za-z0-9_-]{4,32}$/;
 const MAX_GENERATION_ATTEMPTS = 8;
+
+function increment(counters, key) {
+  const next = { ...(counters || {}) };
+  next[key] = (next[key] || 0) + 1;
+  return next;
+}
+
+function mergeCounters(target, source) {
+  for (const [key, value] of Object.entries(source || {})) {
+    target[key] = (target[key] || 0) + (Number(value) || 0);
+  }
+
+  return target;
+}
+
+function toSortedList(counters, limit = 8) {
+  return Object.entries(counters)
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
 
 function isValidHttpUrl(value) {
   if (!value || typeof value !== 'string') {
@@ -73,7 +96,7 @@ class ShortLinkService {
     throw err;
   }
 
-  async resolveShortLink(code) {
+  async resolveShortLink(code, meta = {}) {
     const normalizedCode = normalizeAlias(code);
     if (!normalizedCode) {
       return null;
@@ -86,8 +109,16 @@ class ShortLinkService {
 
     const nextCount = (Number(link.redirectCount) || 0) + 1;
     const lastAccessedAt = this.now();
+    const agent = parseUserAgent(meta.userAgent);
+    const previous = link.agentStats || {};
+    const agentStats = {
+      browsers: increment(previous.browsers, agent.browser),
+      os: increment(previous.os, agent.os),
+      devices: increment(previous.devices, agent.device),
+      referrers: increment(previous.referrers, parseReferrer(meta.referrer))
+    };
 
-    await this.storage.updateRedirectStats(normalizedCode, nextCount, lastAccessedAt);
+    await this.storage.updateRedirectStats(normalizedCode, nextCount, lastAccessedAt, agentStats);
 
     return {
       code: normalizedCode,
@@ -133,6 +164,22 @@ class ShortLinkService {
     const links = await this.storage.listLinks(1000, ownerId);
     const totalRedirects = links.reduce((sum, link) => sum + (Number(link.redirectCount) || 0), 0);
     const withRedirects = links.filter((link) => (Number(link.redirectCount) || 0) > 0);
+    const browsers = {};
+    const os = {};
+    const devices = {};
+    const referrers = {};
+    const owners = {};
+
+    for (const link of links) {
+      const stats = link.agentStats || {};
+      mergeCounters(browsers, stats.browsers);
+      mergeCounters(os, stats.os);
+      mergeCounters(devices, stats.devices);
+      mergeCounters(referrers, stats.referrers);
+      const owner = link.ownerId || 'unassigned';
+      owners[owner] = (owners[owner] || 0) + (Number(link.redirectCount) || 0);
+    }
+
     const topLinks = [...links]
       .sort((a, b) => (Number(b.redirectCount) || 0) - (Number(a.redirectCount) || 0))
       .slice(0, 10);
@@ -147,8 +194,17 @@ class ShortLinkService {
       usedLinks: withRedirects.length,
       unusedLinks: links.length - withRedirects.length,
       averageRedirects: links.length ? Number((totalRedirects / links.length).toFixed(2)) : 0,
+      mostViewed: topLinks.length && topLinks[0].redirectCount ? topLinks[0].code : '-',
       topLinks,
-      recentLinks
+      recentLinks,
+      breakdowns: {
+        browsers: toSortedList(browsers),
+        os: toSortedList(os),
+        devices: toSortedList(devices),
+        referrers: toSortedList(referrers),
+        owners: toSortedList(owners),
+        links: topLinks.map((link) => ({ label: link.code, count: Number(link.redirectCount) || 0 }))
+      }
     };
   }
 
