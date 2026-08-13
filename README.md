@@ -1,6 +1,6 @@
 # AzShortLink
 
-A low-cost Azure Functions URL shortener for `azhk.in` with authenticated link creation, redirects, redirect statistics, a browser dashboard, and deploy-ready Azure infrastructure.
+A low-cost Azure Functions URL shortener for `azhk.in` with authenticated link creation, redirects, redirect statistics, a browser dashboard, and deploy-ready Azure infrastructure
 
 ## Features
 
