@@ -25,8 +25,9 @@ test('verifies credentials against a stored user profile', async () => {
     createdAt: new Date().toISOString()
   });
 
-  const identity = await verifyCredentials('alice', 'correct horse battery staple', storage, '');
+  const identity = await verifyCredentials('Alice', 'correct horse battery staple', storage, '');
 
-  assert.equal(identity.id, 'alice');
-  assert.equal(await verifyCredentials('alice', 'wrong password', storage, ''), null);
+  assert.equal(identity.id, 'Alice');
+  assert.equal(await verifyCredentials('Alice', 'wrong password', storage, ''), null);
+  assert.equal(await verifyCredentials('alice', 'correct horse battery staple', storage, ''), null);
 });

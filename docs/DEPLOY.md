@@ -42,7 +42,7 @@ The Bicep template in `infra/main.bicep` creates:
 - **Storage Table** — Explicit `${tableName}` table for short-link data
 - **App Service Plan** — Consumption (Y1, Linux) for pay-per-use pricing
 - **Application Insights** — Telemetry and logging
-- **Function App** — Node 20, app settings pre-configured, CORS origins configurable
+- **Function App** — Node 22, app settings pre-configured, CORS origins configurable
 
 ### Deploy the template
 
@@ -64,7 +64,7 @@ az deployment group create \
                dashboardUsername="$DASHBOARD_USERNAME" \
                dashboardPasswordHash="$DASHBOARD_PASSWORD_HASH"
 
-# Save the API key — you will need it to call the API and use /dashboard
+# Save the API key — it is still supported for API automation and acts as the admin identity
 echo "SHORTLINK_API_KEY=$API_KEY"
 echo "DASHBOARD_USERNAME=$DASHBOARD_USERNAME"
 ```
@@ -191,7 +191,7 @@ curl -X POST "https://$HOSTNAME/api/shorten" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com", "uniqueValue": "test"}'
 
-# Open the browser dashboard (sign in with DASHBOARD_USERNAME / your chosen password)
+# Open the browser dashboard and sign in with DASHBOARD_USERNAME / your chosen password
 echo "https://$HOSTNAME/dashboard"
 
 # Follow the redirect
@@ -224,12 +224,50 @@ curl -L "https://$HOSTNAME/test"
 
 ---
 
-## 8  Custom Domain: azhk.in (Porkbun)
+## 8  Multiple Profiles and Domains
+
+### 8.1  Add profiles
+
+Profiles are stored in the configured Azure Table Storage table. The first configured dashboard account is created as the admin profile when the Function App starts. After deployment:
+
+1. Open `https://<your-domain>/dashboard` and sign in as the admin.
+2. Open the **Admin** tab and use **Add user** to create a username, display name, and password of at least 12 characters.
+3. Give the user the same dashboard URL. They can create links, view statistics, delete their own links, and change their password from the **Account** tab.
+
+Usernames are case-sensitive, so `Alice` and `alice` are distinct profiles. Admins additionally see every profile, all links with their owners, and a service health panel.
+
+Aliases are globally unique across profiles, while redirects remain public. The API key remains available for automation and maps to the admin profile; browser dashboard requests use the signed session cookie instead.
+
+### 8.2  Hosting multiple domains today
+
+The current application has one global `PUBLIC_BASE_URL`/`baseUrl`. It does not yet provide tenant-aware domain routing or per-profile branded domains.
+
+For separate customer domains, use one deployment per domain:
+
+```bash
+# Example: deploy a second isolated service for customer.example
+az deployment group create \
+  --resource-group "$CUSTOMER_RESOURCE_GROUP" \
+  --template-file infra/main.bicep \
+  --parameters infra/main.bicepparam \
+  --parameters prefix="cust1" \
+               baseUrl="https://customer.example" \
+               customDomain="customer.example" \
+               apiKey="$CUSTOMER_API_KEY" \
+               dashboardUsername="$CUSTOMER_ADMIN_USERNAME" \
+               dashboardPasswordHash="$CUSTOMER_ADMIN_PASSWORD_HASH"
+```
+
+Use a separate resource group, storage account/table, Function App, API key, and dashboard admin credentials for each domain. Then repeat the DNS and certificate steps below for that deployment. This is the supported way to keep customer data and generated hostnames isolated until native multi-domain tenancy is implemented.
+
+Attaching multiple domains to one Function App is not enough: generated URLs still use one global base URL, and the current data model does not associate a domain with a profile.
+
+## 9  Custom Domain: azhk.in (Porkbun)
 
 The Bicep template automatically binds `azhk.in` and `www.azhk.in` to the Function App and provisions free App Service Managed Certificates for HTTPS.  
 **DNS records at Porkbun must be created first, before deploying (or re-deploying) the template.**
 
-### 8.1  Retrieve the domain verification ID
+### 9.1  Retrieve the domain verification ID
 
 ```bash
 az functionapp show \
@@ -241,7 +279,7 @@ az functionapp show \
 
 This prints a long hex string — call it `<VERIFICATION_ID>` below.
 
-### 8.2  Add DNS records at Porkbun
+### 9.2  Add DNS records at Porkbun
 
 Log in to [porkbun.com](https://porkbun.com) → **Domain Management** → `azhk.in` → **DNS**.
 
@@ -267,7 +305,7 @@ FUNCTION_APP_HOSTNAME=$(az deployment group show \
 echo "ALIAS target: $FUNCTION_APP_HOSTNAME"
 ```
 
-### 8.3  Deploy (or redeploy) the Bicep template
+### 9.3  Deploy (or redeploy) the Bicep template
 
 Once DNS is propagated (usually a few minutes), run:
 
@@ -284,7 +322,7 @@ The template will:
 2. Issue free App Service Managed Certificates for both hostnames.
 3. Re-bind both hostnames with SNI SSL enabled.
 
-### 8.4  Verify
+### 9.4  Verify
 
 ```bash
 curl -I https://azhk.in/api/health
@@ -293,7 +331,7 @@ curl -I https://www.azhk.in/api/health
 
 Both should return `HTTP/2 200` (or `503` if storage is not yet ready).
 
-### 8.5  Skip custom domain
+### 9.5  Skip custom domain
 
 To deploy without binding a custom domain (e.g., to a staging slot), pass:
 

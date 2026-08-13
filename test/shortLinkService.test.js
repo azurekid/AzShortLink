@@ -91,6 +91,61 @@ test('returns only links owned by the active profile', async () => {
   assert.equal(links[0].ownerId, 'user1');
 });
 
+test('deletes only links owned by the caller', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, { baseUrl: 'https://azhk.in' });
+
+  await service.createShortLink({ url: 'https://one.example', uniqueValue: 'user-one' }, 'user1');
+  await service.createShortLink({ url: 'https://two.example', uniqueValue: 'user-two' }, 'user2');
+
+  await assert.rejects(() => service.deleteShortLink('user-two', 'user1'), /do not own/);
+
+  assert.equal(await service.deleteShortLink('user-one', 'user1'), true);
+  assert.equal((await service.getStats('', 'user1')).length, 0);
+});
+
+test('lets an admin delete any link', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, { baseUrl: 'https://azhk.in' });
+
+  await service.createShortLink({ url: 'https://one.example', uniqueValue: 'user-one' }, 'user1');
+
+  assert.equal(await service.deleteShortLink('user-one', ''), true);
+  assert.equal(await service.deleteShortLink('missing1', ''), false);
+});
+
+test('aggregates analytics for the requested scope', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, {
+    baseUrl: 'https://azhk.in',
+    now: () => '2026-01-01T00:00:00.000Z'
+  });
+
+  await service.createShortLink({ url: 'https://one.example', uniqueValue: 'link-one' }, 'user1');
+  await service.createShortLink({ url: 'https://two.example', uniqueValue: 'link-two' }, 'user1');
+  await service.resolveShortLink('link-one');
+
+  const analytics = await service.getAnalytics('user1');
+
+  assert.equal(analytics.totalLinks, 2);
+  assert.equal(analytics.totalRedirects, 1);
+  assert.equal(analytics.usedLinks, 1);
+  assert.equal(analytics.unusedLinks, 1);
+  assert.equal(analytics.topLinks[0].code, 'link-one');
+});
+
+test('keeps usernames case-sensitive', async () => {
+  const storage = new InMemoryStorage();
+
+  await storage.createUser({ username: 'Alice', passwordHash: 'hash-a', displayName: 'Alice' });
+  await storage.createUser({ username: 'alice', passwordHash: 'hash-b', displayName: 'alice' });
+
+  assert.equal((await storage.getUser('Alice')).passwordHash, 'hash-a');
+  assert.equal((await storage.getUser('alice')).passwordHash, 'hash-b');
+  assert.equal(await storage.getUser('ALICE'), null);
+  assert.equal((await storage.listUsers()).length, 2);
+});
+
 test('reports detailed healthy storage diagnostics', async () => {
   const storage = {
     async getHealthDetails() {

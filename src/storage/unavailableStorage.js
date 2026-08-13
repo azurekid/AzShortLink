@@ -31,11 +31,23 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async deleteLink() {
+    throw this.createError();
+  }
+
   async createUser() {
     throw this.createError();
   }
 
   async getUser() {
+    throw this.createError();
+  }
+
+  async listUsers() {
+    throw this.createError();
+  }
+
+  async updateUserPassword() {
     throw this.createError();
   }
 

@@ -18,53 +18,67 @@ function renderLoginPage(options = {}) {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AzShortLink — Sign in</title>
   <style>
-    :root { color-scheme: dark; }
+    :root {
+      color-scheme: dark;
+      --bg:#0a0a0f; --surface:#12121a; --card:#1a1a2e; --input:#16162a;
+      --accent:#00d4ff; --danger:#ef4444; --text:#e2e8f0; --heading:#f1f5f9;
+      --muted:#94a3b8; --border:#2d2d44; --border-hover:#3d3d5c;
+      --glow:0 0 24px rgba(0,212,255,.22); --ease:220ms cubic-bezier(.4,0,.2,1);
+    }
     * { box-sizing: border-box; }
     body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: "IBM Plex Mono", "Fira Code", "Courier New", monospace;
-      color: #d6ffe4;
-      background: #050806;
+      margin:0; min-height:100vh; display:grid; place-items:center; padding:24px;
+      color:var(--text); line-height:1.6; font-family:Inter,"Segoe UI",system-ui,sans-serif;
+      background:
+        linear-gradient(rgba(10,10,15,.86),rgba(10,10,15,.95)),
+        radial-gradient(circle at 15% 8%,rgba(0,212,255,.20),transparent 34%),
+        radial-gradient(circle at 85% 92%,rgba(124,58,237,.20),transparent 36%),
+        var(--bg);
+      background-attachment:fixed;
+    }
+    body::after {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+      background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,212,255,.018) 3px,rgba(0,212,255,.018) 4px);
     }
     form {
-      width: min(360px, calc(100% - 32px));
-      background: rgba(5, 18, 9, 0.88);
-      border: 1px solid rgba(73, 255, 135, 0.22);
-      border-radius: 10px;
-      padding: 28px;
+      position:relative; z-index:1; width:min(400px,100%); padding:30px;
+      background:color-mix(in srgb,var(--card) 92%,transparent);
+      border:1px solid var(--border); border-radius:10px;
+      box-shadow:0 4px 24px rgba(0,0,0,.45);
+      transition:border-color var(--ease),box-shadow var(--ease);
     }
-    h1 { font-size: 18px; margin: 0 0 18px; color: #a6ffb9; }
-    label { display: block; font-size: 12px; color: #8fcca1; margin: 12px 0 4px; }
+    form:hover { border-color:var(--border-hover); box-shadow:0 4px 24px rgba(0,0,0,.45),var(--glow); }
+    .brand {
+      display:block; margin-bottom:18px; color:var(--accent); font-size:1.25rem; font-weight:700;
+      font-family:"Share Tech Mono","Cascadia Mono",ui-monospace,monospace;
+      transition:text-shadow var(--ease);
+    }
+    form:hover .brand { text-shadow:0 0 16px rgba(0,212,255,.7); }
+    h1 { margin:0 0 6px; font-size:1.4rem; color:var(--heading); }
+    p { margin:0 0 18px; color:var(--muted); font-size:.9rem; }
+    label { display:block; margin:14px 0 6px; color:var(--muted); font-size:.88rem; }
     input {
-      width: 100%;
-      padding: 10px;
-      background: #0a120c;
-      border: 1px solid rgba(73, 255, 135, 0.3);
-      border-radius: 6px;
-      color: #d6ffe4;
-      font: inherit;
+      width:100%; min-height:44px; padding:10px 12px; color:var(--text);
+      background:var(--input); border:1px solid var(--border); border-radius:8px; font:inherit;
+      transition:border-color var(--ease);
     }
+    input:hover { border-color:var(--border-hover); }
+    input:focus { outline:2px solid var(--accent); outline-offset:2px; }
     button {
-      margin-top: 18px;
-      width: 100%;
-      padding: 10px;
-      background: #49ff87;
-      color: #05120a;
-      border: none;
-      border-radius: 6px;
-      font-weight: 700;
-      cursor: pointer;
+      margin-top:22px; width:100%; min-height:44px; padding:10px 16px; cursor:pointer;
+      color:#061017; background:var(--accent); border:1px solid var(--accent);
+      border-radius:8px; font:inherit; font-weight:700; transition:all var(--ease);
     }
-    .error { margin-top: 14px; color: #ff7373; font-size: 13px; min-height: 16px; }
+    button:hover { transform:translateY(-1px); box-shadow:var(--glow); filter:brightness(1.08); }
+    .error { min-height:20px; margin-top:14px; color:var(--danger); font-size:.86rem; }
   </style>
+  <link rel="stylesheet" href="/custom.css" />
 </head>
 <body>
   <form method="POST" action="/dashboard/login" autocomplete="off">
-    <h1>AzShortLink — Sign in</h1>
+    <span class="brand">AzShortLink</span>
+    <h1>Sign in</h1>
+    <p>Usernames are case-sensitive.</p>
     <label for="username">Username</label>
     <input id="username" name="username" type="text" autocomplete="username" required />
     <label for="password">Password</label>

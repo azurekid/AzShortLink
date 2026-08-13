@@ -2,6 +2,8 @@
 
 const { app } = require('@azure/functions');
 const bcrypt = require('bcryptjs');
+const path = require('node:path');
+const { readFile } = require('node:fs/promises');
 const { getConfig } = require('./src/config');
 const { createStorage } = require('./src/storage');
 const { ShortLinkService } = require('./src/service/shortLinkService');
@@ -54,9 +56,9 @@ function getRequestIdentity(request) {
 
   if (config.apiKey && timingSafeEqualString(getApiKeyFromRequest(request), config.apiKey)) {
     return {
-      id: config.dashboardUsername.trim().toLowerCase(),
-      username: config.dashboardUsername,
-      displayName: config.dashboardUsername,
+      id: config.dashboardUsername.trim(),
+      username: config.dashboardUsername.trim(),
+      displayName: config.dashboardUsername.trim(),
       role: 'admin'
     };
   }
@@ -200,7 +202,7 @@ app.http('getStats', {
     let links;
 
     try {
-      links = await service.getStats(code, identity.id);
+      links = await service.getStats(code, resolveOwnerScope(request, identity));
     } catch (err) {
       if (isStorageUnavailableError(err)) {
         return unavailableStorageResponse(err);
@@ -217,6 +219,156 @@ app.http('getStats', {
         links
       }
     };
+  }
+});
+
+// Admins see every profile's links unless they explicitly ask for their own.
+function resolveOwnerScope(request, identity) {
+  if (identity.role !== 'admin') {
+    return identity.id;
+  }
+
+  return new URL(request.url).searchParams.get('scope') === 'mine' ? identity.id : '';
+}
+
+app.http('deleteLink', {
+  methods: ['DELETE'],
+  authLevel: 'anonymous',
+  route: 'api/links/{code}',
+  handler: async (request) => {
+    const identity = getRequestIdentity(request);
+    if (!identity) {
+      return unauthorizedResponse();
+    }
+
+    const service = await servicePromise;
+
+    try {
+      const deleted = await service.deleteShortLink(
+        request.params.code,
+        identity.role === 'admin' ? '' : identity.id
+      );
+      if (!deleted) {
+        return { status: 404, jsonBody: { error: 'Short URL not found.' } };
+      }
+
+      return { status: 200, jsonBody: { deleted: true, code: request.params.code } };
+    } catch (err) {
+      if (err.code === 'FORBIDDEN') {
+        return { status: 403, jsonBody: { error: err.message } };
+      }
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      return { status: 500, jsonBody: { error: 'Unable to delete short URL.' } };
+    }
+  }
+});
+
+app.http('getAnalytics', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/analytics',
+  handler: async (request) => {
+    const identity = getRequestIdentity(request);
+    if (!identity) {
+      return unauthorizedResponse();
+    }
+
+    const service = await servicePromise;
+
+    try {
+      const analytics = await service.getAnalytics(resolveOwnerScope(request, identity));
+      return { status: 200, jsonBody: { baseUrl: config.baseUrl, scope: identity.role === 'admin' ? 'all' : 'mine', ...analytics } };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      throw err;
+    }
+  }
+});
+
+app.http('listUsers', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/users',
+  handler: async (request) => {
+    const identity = getRequestIdentity(request);
+    if (!identity || identity.role !== 'admin') {
+      return unauthorizedResponse();
+    }
+
+    try {
+      const storage = await storagePromise;
+      const [users, links] = await Promise.all([storage.listUsers(), storage.listLinks(1000, '')]);
+      const linkCounts = links.reduce((acc, link) => {
+        acc[link.ownerId] = (acc[link.ownerId] || 0) + 1;
+        return acc;
+      }, {});
+
+      return {
+        status: 200,
+        jsonBody: {
+          total: users.length,
+          users: users.map((user) => ({ ...user, linkCount: linkCounts[user.id] || 0 }))
+        }
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      throw err;
+    }
+  }
+});
+
+app.http('changePassword', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/profile/password',
+  handler: async (request) => {
+    const identity = getSessionIdentity(request, config);
+    if (!identity) {
+      return unauthorizedResponse();
+    }
+
+    let payload;
+    try {
+      payload = await request.json();
+    } catch {
+      return { status: 400, jsonBody: { error: 'Request body must be valid JSON.' } };
+    }
+
+    const currentPassword = typeof payload.currentPassword === 'string' ? payload.currentPassword : '';
+    const newPassword = typeof payload.newPassword === 'string' ? payload.newPassword : '';
+    if (newPassword.length < 12) {
+      return { status: 400, jsonBody: { error: 'New password must be at least 12 characters.' } };
+    }
+
+    try {
+      const storage = await storagePromise;
+      const user = await verifyCredentials(identity.username, currentPassword, storage, config.dashboardPasswordHash);
+      if (!user) {
+        return { status: 401, jsonBody: { error: 'Current password is incorrect.' } };
+      }
+
+      await storage.updateUserPassword(identity.id, await bcrypt.hash(newPassword, 12));
+      return {
+        status: 200,
+        headers: { 'set-cookie': buildClearedSessionCookie(request) },
+        jsonBody: { updated: true, message: 'Password updated. Please sign in again.' }
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      return { status: 500, jsonBody: { error: 'Unable to update password.' } };
+    }
   }
 });
 
@@ -451,6 +603,26 @@ app.http('createUser', {
       }
       return { status: 500, jsonBody: { error: 'Unable to create user.' } };
     }
+  }
+});
+
+app.http('customCss', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'custom.css',
+  handler: async () => {
+    let css = '';
+    try {
+      css = await readFile(path.join(__dirname, 'src', 'custom.css'), 'utf8');
+    } catch {
+      css = '';
+    }
+
+    return {
+      status: 200,
+      headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'public, max-age=300' },
+      body: css
+    };
   }
 });
 

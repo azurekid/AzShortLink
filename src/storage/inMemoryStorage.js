@@ -8,21 +8,42 @@ class InMemoryStorage {
   }
 
   async createUser({ username, passwordHash, displayName, role = 'user', createdAt }) {
-    const userId = username.trim().toLowerCase();
+    const userId = username.trim();
     if (this.users.has(userId)) {
       const err = new Error('User already exists');
       err.code = 'USER_EXISTS';
       throw err;
     }
 
-    const user = { id: userId, username, passwordHash, displayName, role, createdAt };
+    const user = { id: userId, username: userId, passwordHash, displayName, role, createdAt };
     this.users.set(userId, user);
     return { ...user, passwordHash: undefined };
   }
 
   async getUser(username) {
-    const user = this.users.get(String(username).trim().toLowerCase());
+    const user = this.users.get(String(username).trim());
     return user ? { ...user } : null;
+  }
+
+  async listUsers() {
+    return Array.from(this.users.values()).map((user) => ({
+      id: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      role: user.role,
+      createdAt: user.createdAt,
+      linkCount: Array.from(this.items.values()).filter((item) => item.ownerId === user.id).length
+    }));
+  }
+
+  async updateUserPassword(userId, passwordHash) {
+    const user = this.users.get(String(userId).trim());
+    if (!user) {
+      return false;
+    }
+
+    this.users.set(user.id, { ...user, passwordHash });
+    return true;
   }
 
   async ensureAdminUser({ username, passwordHash }) {
@@ -72,6 +93,10 @@ class InMemoryStorage {
       redirectCount,
       lastAccessedAt
     });
+  }
+
+  async deleteLink(code) {
+    this.items.delete(code);
   }
 
   async listLinks(limit = 250, ownerId = '') {

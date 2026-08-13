@@ -107,6 +107,51 @@ class ShortLinkService {
     return this.storage.listLinks(250, ownerId);
   }
 
+  async deleteShortLink(code, ownerId = '') {
+    const normalizedCode = normalizeAlias(code);
+    if (!normalizedCode) {
+      return false;
+    }
+
+    const link = await this.storage.getLink(normalizedCode);
+    if (!link) {
+      return false;
+    }
+
+    // An empty ownerId means an admin caller, who may delete any link.
+    if (ownerId && link.ownerId !== ownerId) {
+      const err = new Error('You do not own this short link.');
+      err.code = 'FORBIDDEN';
+      throw err;
+    }
+
+    await this.storage.deleteLink(normalizedCode);
+    return true;
+  }
+
+  async getAnalytics(ownerId = '') {
+    const links = await this.storage.listLinks(1000, ownerId);
+    const totalRedirects = links.reduce((sum, link) => sum + (Number(link.redirectCount) || 0), 0);
+    const withRedirects = links.filter((link) => (Number(link.redirectCount) || 0) > 0);
+    const topLinks = [...links]
+      .sort((a, b) => (Number(b.redirectCount) || 0) - (Number(a.redirectCount) || 0))
+      .slice(0, 10);
+    const recentLinks = [...links]
+      .filter((link) => link.lastAccessedAt)
+      .sort((a, b) => String(b.lastAccessedAt).localeCompare(String(a.lastAccessedAt)))
+      .slice(0, 10);
+
+    return {
+      totalLinks: links.length,
+      totalRedirects,
+      usedLinks: withRedirects.length,
+      unusedLinks: links.length - withRedirects.length,
+      averageRedirects: links.length ? Number((totalRedirects / links.length).toFixed(2)) : 0,
+      topLinks,
+      recentLinks
+    };
+  }
+
   async getHealth() {
     const details = this.storage.getHealthDetails
       ? await this.storage.getHealthDetails()

@@ -12,12 +12,12 @@ class TableStorage {
   }
 
   async createUser({ username, passwordHash, displayName, role = 'user', createdAt }) {
-    const userId = username.trim().toLowerCase();
+    const userId = username.trim();
     try {
       await this.client.createEntity({
         partitionKey: USER_PARTITION_KEY,
         rowKey: userId,
-        username,
+        username: userId,
         passwordHash,
         displayName,
         role,
@@ -32,11 +32,11 @@ class TableStorage {
       throw err;
     }
 
-    return { id: userId, username, displayName, role, createdAt };
+    return { id: userId, username: userId, displayName, role, createdAt };
   }
 
   async getUser(username) {
-    const userId = String(username).trim().toLowerCase();
+    const userId = String(username).trim();
     if (!userId) {
       return null;
     }
@@ -54,6 +54,40 @@ class TableStorage {
     } catch (err) {
       if (err && err.statusCode === 404) {
         return null;
+      }
+      throw err;
+    }
+  }
+
+  async listUsers() {
+    const users = [];
+    const entities = this.client.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${USER_PARTITION_KEY}'` }
+    });
+
+    for await (const item of entities) {
+      users.push({
+        id: item.rowKey,
+        username: item.username || item.rowKey,
+        displayName: item.displayName || item.username || item.rowKey,
+        role: item.role || 'user',
+        createdAt: item.createdAt || ''
+      });
+    }
+
+    return users;
+  }
+
+  async updateUserPassword(userId, passwordHash) {
+    try {
+      await this.client.updateEntity(
+        { partitionKey: USER_PARTITION_KEY, rowKey: String(userId).trim(), passwordHash },
+        'Merge'
+      );
+      return true;
+    } catch (err) {
+      if (err && err.statusCode === 404) {
+        return false;
       }
       throw err;
     }
@@ -136,6 +170,16 @@ class TableStorage {
       },
       'Merge'
     );
+  }
+
+  async deleteLink(code) {
+    try {
+      await this.client.deleteEntity(PARTITION_KEY, code);
+    } catch (err) {
+      if (!err || err.statusCode !== 404) {
+        throw err;
+      }
+    }
   }
 
   async listLinks(limit = 250, ownerId = '') {
