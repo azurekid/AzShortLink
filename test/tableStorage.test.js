@@ -176,6 +176,19 @@ test('listInvites returns every invite regardless of redeemed state', async () =
   assert.equal(invites.find((invite) => invite.code === 'two').redeemedBy, 'bob');
 });
 
+test('listInvites is not scoped to a single admin - it returns invites created by every admin', async () => {
+  const { storage } = makeStorage({
+    usersEntities: [
+      { partitionKey: 'INVITE', rowKey: 'from-admin-one', createdBy: 'admin-one', createdAt: '2026-01-01T00:00:00.000Z', redeemed: false },
+      { partitionKey: 'INVITE', rowKey: 'from-admin-two', createdBy: 'admin-two', createdAt: '2026-01-02T00:00:00.000Z', redeemed: false }
+    ]
+  });
+
+  const invites = await storage.listInvites();
+
+  assert.deepEqual(invites.map((invite) => invite.createdBy).sort(), ['admin-one', 'admin-two']);
+});
+
 test('redeemInvite marks an unredeemed invite as used and rejects a second redemption', async () => {
   const { storage } = makeStorage({
     usersEntities: [{ partitionKey: 'INVITE', rowKey: 'abc123', createdBy: 'admin', createdAt: '2026-01-01T00:00:00.000Z', redeemed: false }]

@@ -759,6 +759,10 @@ app.http('dashboardSignupSubmit', {
         };
       }
 
+      // The invite code doubles as a real shortlink code; deleting it here means the URL
+      // itself stops resolving once redeemed, instead of redirecting forever to a dead end.
+      await storage.deleteLink(inviteCode);
+
       await recordAuditEvent(storage, {
         action: ACTIONS.USER_CREATED,
         actorId: user.id,
@@ -865,14 +869,23 @@ app.http('createInvite', {
   route: 'api/invites',
   handler: async (request) => {
     const identity = await resolveIdentity(request);
-    if (!identity || identity.role !== 'admin') {
+    if (!identity) {
       return unauthorizedResponse();
     }
 
     try {
+      const storage = await storagePromise;
+
+      // Admins can mint as many invite links as they need; everyone else gets exactly one.
+      if (identity.role !== 'admin') {
+        const invites = await storage.listInvites();
+        if (invites.some((invite) => invite.createdBy === identity.id)) {
+          return { status: 409, jsonBody: { error: 'You have already created an invite link.' } };
+        }
+      }
+
       const service = await servicePromise;
       const invite = await service.createInviteLink(identity.id);
-      const storage = await storagePromise;
       await recordAuditEvent(storage, {
         action: ACTIONS.INVITE_CREATED,
         actorId: identity.id,
@@ -886,6 +899,33 @@ app.http('createInvite', {
         return unavailableStorageResponse(err);
       }
       return { status: 500, jsonBody: { error: 'Unable to create invite link.' } };
+    }
+  }
+});
+
+app.http('getMyInvite', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/invites/mine',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity) {
+      return unauthorizedResponse();
+    }
+
+    try {
+      const storage = await storagePromise;
+      const invites = await storage.listInvites();
+      const mine = invites.find((invite) => invite.createdBy === identity.id) || null;
+      return {
+        status: 200,
+        jsonBody: { invite: mine ? { ...mine, inviteUrl: `${config.baseUrl}/${mine.code}` } : null }
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+      throw err;
     }
   }
 });

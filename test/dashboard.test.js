@@ -46,6 +46,43 @@ test('shows admin-only profile and health panels for admins', () => {
   assert.match(html, /<th>Owner<\/th>/);
 });
 
+test('shows an invite links panel to admins listing every invite, not just their own', () => {
+  const html = renderDashboard('https://azhk.in', {
+    user: { username: 'Admin', displayName: 'Admin', role: 'admin' }
+  });
+
+  assert.match(html, /id="invites-body"/);
+  assert.match(html, /id="create-invite"/);
+  assert.match(html, /<th>Created by<\/th>/);
+  // The invite list is fetched with no owner/scope filter, so every admin's invites are shown.
+  assert.match(html, /apiRequest\('\/api\/invites'\)/);
+});
+
+test('does not show the invites panel to non-admin users', () => {
+  const html = renderDashboard('https://azhk.in', {
+    user: { username: 'Alice', displayName: 'Alice', role: 'user' }
+  });
+
+  assert.doesNotMatch(html, /id="invites-body"/);
+});
+
+test('lets a non-admin user create their own single invite link from the account tab', () => {
+  const html = renderDashboard('https://azhk.in', {
+    user: { username: 'Alice', displayName: 'Alice', role: 'user' }
+  });
+
+  assert.match(html, /id="my-invite-body"/);
+  assert.match(html, /apiRequest\('\/api\/invites\/mine'\)/);
+});
+
+test('does not show the self-service invite card to admins, who use the admin invites panel instead', () => {
+  const html = renderDashboard('https://azhk.in', {
+    user: { username: 'Admin', displayName: 'Admin', role: 'admin' }
+  });
+
+  assert.doesNotMatch(html, /id="my-invite-body"/);
+});
+
 test('gives admins an audit trail tab with filters and CSV export', () => {
   const html = renderDashboard('https://azhk.in', {
     user: { username: 'Admin', displayName: 'Admin', role: 'admin' }

@@ -387,6 +387,12 @@ ${HEAD_ASSETS}
           </div>
           <div id="api-key-status" class="status" role="status" aria-live="polite"></div>
         </section>
+        ${isAdmin ? '' : `<section class="card span-full">
+          <div class="card-header"><h2><i class="fas fa-user-plus"></i>Invite link</h2></div>
+          <p>Create your personal invite link to let someone else sign up. You can only create one.</p>
+          <div id="my-invite-body"><p>Loading...</p></div>
+          <div id="my-invite-status" class="status" role="status" aria-live="polite"></div>
+        </section>`}
       </div>
     </section>
 
@@ -536,6 +542,31 @@ ${HEAD_ASSETS}
         document.getElementById('api-key-prefix').textContent = profile.apiKeyPrefix ? profile.apiKeyPrefix + '\u2026' : 'none';
         document.getElementById('api-key-created').textContent = profile.apiKeyCreatedAt ? '(created ' + profile.apiKeyCreatedAt + ')' : '';
       } catch (error) { setPanelStatus('api-key-status', error.message, 'error'); }
+      await loadMyInvite();
+    }
+    async function loadMyInvite() {
+      const body = document.getElementById('my-invite-body');
+      if (!body) return;
+      try {
+        const data = await apiRequest('/api/invites/mine');
+        if (!data.invite) {
+          body.innerHTML = '<button id="create-my-invite" class="button-secondary button-compact" type="button">Create invite link</button>';
+          document.getElementById('create-my-invite').addEventListener('click', async () => {
+            setPanelStatus('my-invite-status', 'Creating invite link...');
+            try {
+              await apiRequest('/api/invites', { method: 'POST' });
+              await loadMyInvite();
+              setPanelStatus('my-invite-status', 'Invite link created.', 'success');
+            } catch (error) { setPanelStatus('my-invite-status', error.message, 'error'); }
+          });
+          return;
+        }
+
+        const status = data.invite.redeemed
+          ? 'Redeemed by ' + escapeHtml(data.invite.redeemedBy || '-')
+          : 'Active - not used yet';
+        body.innerHTML = '<p class="mono">' + escapeHtml(data.invite.inviteUrl) + '</p><p>' + status + '</p>';
+      } catch (error) { body.innerHTML = '<p class="status error">' + escapeHtml(error.message) + '</p>'; }
     }
     let generatedApiKey = '';
     document.getElementById('generate-api-key').addEventListener('click', async () => {
