@@ -205,6 +205,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
                 <option value="">All actions</option>
                 <option value="LOGIN_SUCCESS">Login success</option>
                 <option value="LOGIN_FAILED">Login failed</option>
+                <option value="LOGOUT">Logout</option>
                 <option value="LINK_CREATED">Link created</option>
                 <option value="LINK_DELETED">Link deleted</option>
                 <option value="USER_CREATED">User created</option>

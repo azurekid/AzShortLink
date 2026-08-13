@@ -635,6 +635,17 @@ app.http('dashboardLogout', {
   authLevel: 'anonymous',
   route: 'dashboard/logout',
   handler: async (request) => {
+    const identity = getSessionIdentity(request, config);
+    if (identity) {
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LOGOUT,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        ip: getClientIp(request)
+      });
+    }
+
     return {
       status: 302,
       headers: {
