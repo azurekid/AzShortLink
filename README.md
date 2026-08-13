@@ -79,6 +79,7 @@ Body:
 | Statistics | everyone | Icon stat cards plus bar charts for top links, browsers, operating systems, device types and referrers |
 | Account | everyone | Current profile, self-service password change, personal API key |
 | Admin | admins | All profiles with link counts, add user, service health, redirects by profile |
+| Audit trail | admins | Filterable 30-day security audit log (login attempts, link/user/password/API-key events) with CSV export |
 
 Admins see every profile's links (with an owner column) and can delete any link. Regular users only ever see and delete their own links. Changing a password signs the user out so they re-authenticate.
 

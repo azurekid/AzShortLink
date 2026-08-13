@@ -46,6 +46,27 @@ test('shows admin-only profile and health panels for admins', () => {
   assert.match(html, /<th>Owner<\/th>/);
 });
 
+test('gives admins an audit trail tab with filters and CSV export', () => {
+  const html = renderDashboard('https://azhk.in', {
+    user: { username: 'Admin', displayName: 'Admin', role: 'admin' }
+  });
+
+  assert.match(html, /data-panel="panel-audit"/);
+  assert.match(html, /id="audit-filter-action"/);
+  assert.match(html, /id="audit-filter-actor"/);
+  assert.match(html, /id="audit-filter-since"/);
+  assert.match(html, /id="export-audit-csv"/);
+  assert.match(html, /id="audit-body"/);
+});
+
+test('does not show the audit trail tab to non-admin users', () => {
+  const html = renderDashboard('https://azhk.in', {
+    user: { username: 'Alice', displayName: 'Alice', role: 'user' }
+  });
+
+  assert.doesNotMatch(html, /data-panel="panel-audit"/);
+});
+
 test('escapes the signed-in display name', () => {
   const html = renderDashboard('https://azhk.in', {
     user: { username: 'x', displayName: '<img src=x onerror=alert(1)>', role: 'user' }

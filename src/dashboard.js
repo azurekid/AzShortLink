@@ -166,7 +166,8 @@ function renderDashboard(baseUrl, options = {}) {
     ? '<p class="status">SHORTLINK_API_KEY is not configured</p>'
     : '';
   const adminTabButton = isAdmin
-    ? '<button class="tab" type="button" role="tab" data-panel="panel-admin" aria-selected="false">Admin</button>'
+    ? '<button class="tab" type="button" role="tab" data-panel="panel-admin" aria-selected="false"><i class="fas fa-user-shield"></i> Admin</button>' +
+      '<button class="tab" type="button" role="tab" data-panel="panel-audit" aria-selected="false"><i class="fas fa-shield-halved"></i> Audit trail</button>'
     : '';
   const adminPanel = isAdmin ? `
     <section id="panel-admin" class="tab-panel" role="tabpanel" hidden>
@@ -191,6 +192,40 @@ function renderDashboard(baseUrl, options = {}) {
         <section class="card">
           <div class="card-header"><h2>Service health</h2><button id="load-health" class="button-secondary button-compact" type="button">Check</button></div>
           <div id="health-body" class="stack"><p>Run a health check to view storage and configuration state.</p></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="panel-audit" class="tab-panel" role="tabpanel" hidden>
+      <div class="content-grid">
+        <section class="card span-full">
+          <div class="card-header"><h2><i class="fas fa-shield-halved"></i>Audit trail (30-day retention)</h2>
+            <div class="actions">
+              <button id="load-audit" class="button-secondary button-compact" type="button"><i class="fas fa-sync-alt"></i>Refresh</button>
+              <button id="export-audit-csv" class="button-secondary button-compact" type="button"><i class="fas fa-file-csv"></i>Export CSV</button>
+            </div>
+          </div>
+          <div class="stack" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));display:grid;gap:10px;margin-bottom:14px">
+            <div class="field"><label for="audit-filter-action">Action</label>
+              <select id="audit-filter-action">
+                <option value="">All actions</option>
+                <option value="LOGIN_SUCCESS">Login success</option>
+                <option value="LOGIN_FAILED">Login failed</option>
+                <option value="LINK_CREATED">Link created</option>
+                <option value="LINK_DELETED">Link deleted</option>
+                <option value="USER_CREATED">User created</option>
+                <option value="PASSWORD_CHANGED">Password changed</option>
+                <option value="API_KEY_ROTATED">API key rotated</option>
+              </select>
+            </div>
+            <div class="field"><label for="audit-filter-actor">Actor (username)</label><input id="audit-filter-actor" type="text" placeholder="e.g. admin" /></div>
+            <div class="field"><label for="audit-filter-since">Since</label><input id="audit-filter-since" type="datetime-local" /></div>
+          </div>
+          <div id="audit-status" class="status" role="status" aria-live="polite"></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Time (UTC)</th><th>Action</th><th>Actor</th><th>IP</th><th>Details</th></tr></thead>
+            <tbody id="audit-body"><tr><td colspan="5">No audit events loaded yet.</td></tr></tbody>
+          </table></div>
         </section>
       </div>
     </section>` : '';
@@ -356,6 +391,7 @@ ${HEAD_ASSETS}
         document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.id !== tab.dataset.panel; });
         if (tab.dataset.panel === 'panel-analytics') loadAnalytics();
         if (tab.dataset.panel === 'panel-admin') loadUsers();
+        if (tab.dataset.panel === 'panel-audit') loadAuditLog();
         if (tab.dataset.panel === 'panel-account') loadProfile();
       });
     });
@@ -508,6 +544,69 @@ ${HEAD_ASSETS}
     }
     const loadUsersButton = document.getElementById('load-users');
     if (loadUsersButton) loadUsersButton.addEventListener('click', loadUsers);
+
+    let latestAuditEvents = [];
+    function buildAuditQuery() {
+      const params = new URLSearchParams();
+      const action = document.getElementById('audit-filter-action').value;
+      const actor = document.getElementById('audit-filter-actor').value.trim();
+      const since = document.getElementById('audit-filter-since').value;
+      if (action) params.set('action', action);
+      if (actor) params.set('actor', actor);
+      if (since) params.set('since', new Date(since).toISOString());
+      params.set('limit', '1000');
+      return params.toString();
+    }
+    async function loadAuditLog() {
+      const body = document.getElementById('audit-body');
+      if (!body) return;
+      setPanelStatus('audit-status', 'Loading audit trail...');
+      try {
+        const data = await apiRequest('/api/audit?' + buildAuditQuery());
+        latestAuditEvents = data.events || [];
+        if (!latestAuditEvents.length) { body.innerHTML = '<tr><td colspan="5">No audit events in range.</td></tr>'; }
+        else {
+          body.innerHTML = latestAuditEvents.map((event) =>
+            '<tr><td class="mono">' + escapeHtml(event.timestamp) + '</td>' +
+            '<td><span class="pill">' + escapeHtml(event.action) + '</span></td>' +
+            '<td class="mono">' + escapeHtml(event.actorUsername || 'anonymous') + '</td>' +
+            '<td class="mono">' + escapeHtml(event.ip || '-') + '</td>' +
+            '<td class="truncate" title="' + escapeHtml(JSON.stringify(event.details || {})) + '">' + escapeHtml(JSON.stringify(event.details || {})) + '</td></tr>'
+          ).join('');
+        }
+        setPanelStatus('audit-status', 'Loaded ' + latestAuditEvents.length + ' event(s) (retention: ' + data.retentionDays + ' days).', 'success');
+      } catch (error) { setPanelStatus('audit-status', error.message, 'error'); }
+    }
+    const loadAuditButton = document.getElementById('load-audit');
+    if (loadAuditButton) loadAuditButton.addEventListener('click', loadAuditLog);
+    ['audit-filter-action', 'audit-filter-actor', 'audit-filter-since'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', loadAuditLog);
+    });
+    function csvEscape(value) {
+      const str = String(value ?? '');
+      return /[",\n]/.test(str) ? '"' + str.replaceAll('"', '""') + '"' : str;
+    }
+    const exportAuditButton = document.getElementById('export-audit-csv');
+    if (exportAuditButton) exportAuditButton.addEventListener('click', () => {
+      if (!latestAuditEvents.length) { setPanelStatus('audit-status', 'Nothing to export \u2014 load the audit trail first.', 'error'); return; }
+      const header = ['timestamp', 'action', 'actorId', 'actorUsername', 'ip', 'details'];
+      const rows = latestAuditEvents.map((event) => header.map((key) =>
+        csvEscape(key === 'details' ? JSON.stringify(event.details || {}) : event[key])
+      ).join(','));
+      const csv = [header.join(','), ...rows].join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'azshortlink-audit-' + new Date().toISOString().slice(0, 10) + '.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setPanelStatus('audit-status', 'Exported ' + latestAuditEvents.length + ' event(s) to CSV.', 'success');
+    });
+
     const loadHealthButton = document.getElementById('load-health');
     if (loadHealthButton) loadHealthButton.addEventListener('click', async () => {
       const body = document.getElementById('health-body');
