@@ -282,6 +282,24 @@ registerHttp('redirectUrl', {
     }
 
     if (!result) {
+      try {
+        const storage = await storagePromise;
+        const invite = await storage.getInvite(code);
+        if (invite && invite.redeemed) {
+          return {
+            status: 410,
+            headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+            body: renderSignupPage({ error: 'This invite link has already been used.' })
+          };
+        }
+      } catch (err) {
+        if (isStorageUnavailableError(err)) {
+          return unavailableStorageResponse(err);
+        }
+
+        throw err;
+      }
+
       return {
         status: 404,
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
