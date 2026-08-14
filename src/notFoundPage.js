@@ -6,7 +6,7 @@ function renderNotFoundPage() {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AzShortLink — Link not found</title>
+  <title>AzShortLink — 404</title>
   <link rel="icon" type="image/svg+xml" href="https://azurehacking.com/images/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,8 +21,8 @@ function renderNotFoundPage() {
     }
     * { box-sizing: border-box; }
     body {
-      margin:0; min-height:100vh; display:grid; place-items:center; padding:24px;
-      color:var(--text); line-height:1.6; font-family:Inter,"Segoe UI",system-ui,sans-serif;
+      margin:0; min-height:100vh; color:var(--text); line-height:1.6;
+      font-family:Inter,"Segoe UI",system-ui,sans-serif;
       background-color:var(--bg);
       background-image:
         linear-gradient(rgba(10,10,15,.55),rgba(10,10,15,.78)),
@@ -35,41 +35,63 @@ function renderNotFoundPage() {
       content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
       background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,212,255,.018) 3px,rgba(0,212,255,.018) 4px);
     }
-    .card {
-      position:relative; z-index:1; width:min(440px,100%); padding:30px; text-align:center;
-      background:color-mix(in srgb,var(--card) 82%,transparent);
-      border:1px solid var(--border); border-radius:10px;
-      box-shadow:0 4px 24px rgba(0,0,0,.45);
-      backdrop-filter:blur(6px);
-      transition:border-color var(--ease),box-shadow var(--ease);
+    .navbar, .footer, .error-page { position:relative; z-index:1; width:min(1040px,calc(100% - 48px)); margin:auto; }
+    .navbar {
+      display:flex; justify-content:space-between; align-items:center; padding:28px 0;
+      border-bottom:1px solid rgba(45,45,68,.7);
     }
-    .card:hover { border-color:var(--border-hover); box-shadow:0 4px 24px rgba(0,0,0,.45),var(--glow); }
-    .brand {
-      display:block; margin-bottom:18px; color:var(--accent); font-size:1.25rem; font-weight:700;
-      font-family:"Share Tech Mono","Cascadia Mono",ui-monospace,monospace;
-      transition:text-shadow var(--ease);
+    .brand { color:var(--accent); font:700 1.25rem "Share Tech Mono","Cascadia Mono",ui-monospace,monospace; }
+    .brand span { color:var(--muted); }
+    .error-page { display:grid; place-items:center; min-height:calc(100vh - 177px); padding:56px 0; }
+    .error-content { width:min(680px,100%); text-align:center; }
+    .code { margin:0; color:var(--danger); font:800 clamp(5rem,16vw,9rem)/1 "Share Tech Mono",monospace; letter-spacing:.04em; text-shadow:0 0 30px rgba(239,68,68,.35); }
+    h1 { margin:12px 0 8px; color:var(--heading); font-size:clamp(1.7rem,4vw,2.4rem); }
+    .description { margin:0 auto 26px; max-width:580px; color:var(--muted); }
+    .terminal {
+      margin:0 auto 28px; padding:18px 20px; text-align:left; color:var(--text);
+      background:rgba(18,18,26,.84); border:1px solid var(--border); border-radius:10px;
+      box-shadow:0 4px 24px rgba(0,0,0,.45); font:400 .9rem/1.8 "Share Tech Mono",monospace;
     }
-    .card:hover .brand { text-shadow:0 0 16px rgba(0,212,255,.7); }
-    .code { margin:0 0 6px; color:var(--danger); font-size:2.5rem; font-weight:800; letter-spacing:.04em; }
-    h1 { margin:0 0 6px; font-size:1.3rem; color:var(--heading); }
-    p { margin:0 0 18px; color:var(--muted); font-size:.9rem; }
-    a.home {
-      display:inline-block; margin-top:6px; min-height:44px; line-height:24px; padding:10px 20px;
-      color:#061017; background:var(--accent); border:1px solid var(--accent);
-      border-radius:8px; font-weight:700; text-decoration:none; transition:all var(--ease);
+    .terminal::before { content:"●  ●  ●"; display:block; margin-bottom:10px; color:var(--border-hover); letter-spacing:.25em; }
+    .prompt { color:var(--accent); }
+    .output { color:var(--danger); }
+    .actions { display:flex; justify-content:center; flex-wrap:wrap; gap:12px; }
+    a.action {
+      display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 20px;
+      color:#061017; background:var(--accent); border:1px solid var(--accent); border-radius:8px;
+      font-weight:700; text-decoration:none; transition:all var(--ease);
     }
-    a.home:hover { transform:translateY(-1px); box-shadow:var(--glow); filter:brightness(1.08); }
+    a.action:hover { transform:translateY(-1px); box-shadow:var(--glow); filter:brightness(1.08); }
+    a.action.secondary { color:var(--text); background:transparent; border-color:var(--border-hover); }
+    .footer { padding:24px 0; border-top:1px solid rgba(45,45,68,.7); color:var(--muted); text-align:center; font-size:.8rem; }
+    @media (max-width:600px) {
+      .navbar, .footer, .error-page { width:min(100% - 32px,1040px); }
+      .navbar { padding:20px 0; }
+      .brand { font-size:1rem; }
+      .error-page { min-height:calc(100vh - 145px); padding:40px 0; }
+    }
   </style>
   <link rel="stylesheet" href="/custom.css" />
 </head>
 <body>
-  <div class="card">
-    <span class="brand">AzShortLink</span>
-    <p class="code">404</p>
-    <h1>This short link doesn't exist</h1>
-    <p>The link you followed may be broken, expired, or removed.</p>
-    <a class="home" href="/">Go to homepage</a>
-  </div>
+  <nav class="navbar" aria-label="Main navigation">
+    <a class="brand" href="/dashboard/login">AzShortLink <span>// URL service</span></a>
+  </nav>
+  <main class="error-page">
+    <section class="error-content" aria-labelledby="error-title">
+      <p class="code">404</p>
+      <h1 id="error-title">Short link not found</h1>
+      <p class="description">The link you followed may be broken, expired, or removed.</p>
+      <div class="terminal" role="status" aria-label="Lookup result">
+        <div><span class="prompt">$</span> Resolve-ShortLink -CurrentRequest</div>
+        <div class="output">ERROR: No matching short link was found.</div>
+      </div>
+      <div class="actions">
+        <a class="action" href="/dashboard/login">Back to home</a>
+      </div>
+    </section>
+  </main>
+  <footer class="footer">&copy; 2026 AzShortLink. All rights reserved.</footer>
 </body>
 </html>`;
 }
