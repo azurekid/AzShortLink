@@ -26,6 +26,7 @@ const {
 const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('./src/audit');
 const { createRateLimiter } = require('./src/rateLimiter');
 const { buildOpenApiSpec } = require('./src/openApi');
+const { renderApiDocsPage } = require('./src/apiDocsPage');
 const { createQrCodePng } = require('./src/qrCode');
 const { DEFAULT_INVITE_POLICY, evaluateInviteEligibility, buildInviteAncestry } = require('./src/invitePolicy');
 const {
@@ -106,32 +107,6 @@ const API_DOCS_SECURITY_HEADERS = {
     "connect-src 'self'"
   ].join('; ')
 };
-
-function renderApiDocsPage() {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AzShortLink API Reference</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
-</head>
-<body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-  <script>
-    window.ui = SwaggerUIBundle({
-      url: '/openapi.json',
-      dom_id: '#swagger-ui',
-      deepLinking: true,
-      persistAuthorization: true,
-      presets: [SwaggerUIBundle.presets.apis],
-      layout: 'BaseLayout'
-    });
-  </script>
-</body>
-</html>`;
-}
 
 function configurationErrorResponse() {
   console.error('[api] SHORTLINK_API_KEY is not configured; restart the Function App after setting it.');

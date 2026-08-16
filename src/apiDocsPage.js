@@ -1,0 +1,111 @@
+'use strict';
+
+const { HEAD_ASSETS } = require('./dashboard/shared');
+
+function renderApiDocsPage() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AzShortLink API Reference</title>
+${HEAD_ASSETS}
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    :root {
+      color-scheme:dark;
+      --bg:#0a0a0f; --surface:#12121a; --card:#1a1a2e; --input:#16162a;
+      --accent:#00d4ff; --success:#10b981; --danger:#ef4444;
+      --text:#e2e8f0; --heading:#f1f5f9; --muted:#94a3b8; --border:#2d2d44;
+    }
+    * { box-sizing:border-box; }
+    html { min-height:100%; background:var(--bg); }
+    body { margin:0; min-height:100vh; color:var(--text); font-family:Inter,"Segoe UI",system-ui,sans-serif; }
+    .bg-layer {
+      position:fixed; inset:0; z-index:0; pointer-events:none;
+      background-color:var(--bg);
+      background-image:linear-gradient(rgba(10,10,15,.62),rgba(10,10,15,.88)),url("https://blackcatwebshop.z13.web.core.windows.net/media/azure-hacking-corp.jpg");
+      background-position:center; background-size:cover; background-repeat:no-repeat;
+    }
+    body::after { content:""; position:fixed; inset:0; z-index:0; pointer-events:none; background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,212,255,.02) 3px,rgba(0,212,255,.02) 4px); }
+    .docs-shell { position:relative; z-index:1; width:min(1280px,calc(100% - 32px)); margin:0 auto; padding:24px 0 56px; }
+    .docs-header { min-height:70px; display:flex; align-items:center; justify-content:space-between; gap:20px; border-bottom:1px solid var(--border); }
+    .brand { color:var(--accent); font:700 1.25rem "Share Tech Mono","Cascadia Mono",monospace; text-decoration:none; }
+    .dashboard-link { display:inline-flex; align-items:center; gap:7px; min-height:38px; padding:7px 12px; color:var(--text); border:1px solid var(--border); border-radius:8px; font-weight:700; text-decoration:none; }
+    .dashboard-link:hover { color:var(--accent); border-color:var(--accent); background:rgba(0,212,255,.08); }
+    .docs-intro { padding:24px 0 18px; }
+    .docs-intro p { margin:0 0 5px; color:var(--accent); font:400 .78rem "Share Tech Mono",monospace; text-transform:uppercase; letter-spacing:.14em; }
+    .docs-intro h1 { margin:0; color:var(--heading); font-size:clamp(1.6rem,3.6vw,2.4rem); line-height:1.2; }
+    .docs-intro span { display:block; margin-top:7px; color:var(--muted); }
+    .swagger-frame { overflow:hidden; border:1px solid var(--border); border-radius:10px; background:rgba(18,18,26,.92); box-shadow:0 4px 24px rgba(0,0,0,.45); backdrop-filter:blur(10px); }
+    .swagger-ui { color:var(--text); font-family:Inter,"Segoe UI",system-ui,sans-serif; }
+    .swagger-ui .topbar { display:none; }
+    .swagger-ui .wrapper { max-width:none; padding:0 20px 24px; }
+    .swagger-ui .info { margin:26px 0 18px; }
+    .swagger-ui .info .title,.swagger-ui .info h1,.swagger-ui .info h2,.swagger-ui .info h3,.swagger-ui .opblock-tag,.swagger-ui .model-title,.swagger-ui .models h4 { color:var(--heading); }
+    .swagger-ui .info p,.swagger-ui .info li,.swagger-ui .info table,.swagger-ui .markdown p,.swagger-ui .renderedMarkdown p,.swagger-ui .parameter__name,.swagger-ui .parameter__type,.swagger-ui table thead tr td,.swagger-ui table thead tr th,.swagger-ui .response-col_status,.swagger-ui .response-col_description,.swagger-ui .model { color:var(--text); }
+    .swagger-ui a,.swagger-ui .info a { color:var(--accent); }
+    .swagger-ui .scheme-container { margin:0 -20px 22px; padding:18px 20px; background:var(--surface); border-top:1px solid var(--border); border-bottom:1px solid var(--border); box-shadow:none; }
+    .swagger-ui .opblock-tag { margin:0; padding:18px 4px 12px; border-bottom:1px solid var(--border); font-size:1.1rem; }
+    .swagger-ui .opblock-tag small { color:var(--muted); }
+    .swagger-ui .opblock { margin:10px 0; border-radius:8px; background:rgba(22,22,42,.86); box-shadow:none; }
+    .swagger-ui .opblock .opblock-summary { min-height:52px; border-color:var(--border); }
+    .swagger-ui .opblock .opblock-summary-description,.swagger-ui .opblock .opblock-summary-path,.swagger-ui .opblock .opblock-summary-path__deprecated { color:var(--text); }
+    .swagger-ui .opblock .opblock-section-header { background:var(--surface); box-shadow:none; }
+    .swagger-ui .opblock .opblock-section-header h4,.swagger-ui .opblock .opblock-section-header label { color:var(--heading); }
+    .swagger-ui .opblock-body pre.microlight,.swagger-ui .highlight-code,.swagger-ui .model-box,.swagger-ui section.models { background:var(--surface) !important; color:var(--text); }
+    .swagger-ui section.models { border-color:var(--border); border-radius:8px; }
+    .swagger-ui section.models.is-open h4 { border-color:var(--border); }
+    .swagger-ui input[type=text],.swagger-ui input[type=password],.swagger-ui input[type=email],.swagger-ui textarea,.swagger-ui select { color:var(--text); background:var(--input); border:1px solid var(--border); }
+    .swagger-ui select option { color:var(--text); background:var(--input); }
+    .swagger-ui .btn { color:var(--text); border-color:var(--border); border-radius:7px; box-shadow:none; }
+    .swagger-ui .btn.authorize { color:var(--accent); border-color:var(--accent); }
+    .swagger-ui .btn.execute { color:#061017; background:var(--accent); border-color:var(--accent); }
+    .swagger-ui .dialog-ux .modal-ux { color:var(--text); background:var(--card); border-color:var(--border); }
+    .swagger-ui .dialog-ux .modal-ux-header { border-color:var(--border); }
+    .swagger-ui .dialog-ux .modal-ux-header h3,.swagger-ui .dialog-ux .modal-ux-content h4,.swagger-ui .dialog-ux .modal-ux-content p,.swagger-ui .dialog-ux .modal-ux-content label { color:var(--text); }
+    .swagger-ui svg { fill:currentColor; }
+    @media (max-width:700px) {
+      .docs-shell { width:min(100% - 20px,1280px); padding-top:10px; }
+      .docs-header { min-height:58px; }
+      .docs-intro { padding-top:18px; }
+      .swagger-ui .wrapper { padding-inline:10px; }
+      .swagger-ui .scheme-container { margin-inline:-10px; padding-inline:10px; }
+      .swagger-ui .opblock .opblock-summary { align-items:flex-start; flex-wrap:wrap; }
+      .swagger-ui .opblock .opblock-summary-path { max-width:100%; word-break:break-word; }
+    }
+  </style>
+  <link rel="stylesheet" href="/custom.css" />
+</head>
+<body>
+  <div class="bg-layer"></div>
+  <main class="docs-shell">
+    <header class="docs-header">
+      <a class="brand" href="/">AzShortLink</a>
+      <a class="dashboard-link" href="/dashboard"><i class="fas fa-arrow-left"></i>Dashboard</a>
+    </header>
+    <section class="docs-intro">
+      <p>Developer interface</p>
+      <h1>API reference</h1>
+      <span>Interactive OpenAPI 3.0 documentation for the current deployment.</span>
+    </section>
+    <section class="swagger-frame" aria-label="Interactive API reference">
+      <div id="swagger-ui"></div>
+    </section>
+  </main>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: '/openapi.json',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      persistAuthorization: true,
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: 'BaseLayout'
+    });
+  </script>
+</body>
+</html>`;
+}
+
+module.exports = { renderApiDocsPage };
