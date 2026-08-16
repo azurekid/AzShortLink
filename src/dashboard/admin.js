@@ -269,6 +269,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
                 <option value="USER_DELETED">User deleted</option>
                 <option value="PASSWORD_CHANGED">Password changed</option>
                 <option value="PASSWORD_RESET_BY_ADMIN">Password reset by admin</option>
+                <option value="PASSWORD_RESET_SELF_SERVICE">Self-service password reset</option>
                 <option value="API_KEY_ROTATED">API key rotated</option>
                 <option value="INVITE_CREATED">Invite created</option>
                 <option value="INVITE_CREATION_DENIED">Invite creation denied</option>

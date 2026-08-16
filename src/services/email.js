@@ -103,6 +103,61 @@ function buildVerificationEmailContent({ username, verificationUrl }) {
   return { subject: 'Verify your AzShortLink account', plainText, html };
 }
 
+function buildPasswordResetEmailContent({ username, temporaryPassword }) {
+  const safeUsername = escapeHtml(username);
+  const safeTemporaryPassword = escapeHtml(temporaryPassword);
+  const plainText = [
+    `Hi ${username},`,
+    '',
+    'A temporary password was generated for your AzShortLink account:',
+    temporaryPassword,
+    '',
+    'Sign in with your case-sensitive username and this temporary password, then change it immediately from the Account tab.',
+    '',
+    'If you did not request this reset, contact an administrator through the Help tab after signing in.'
+  ].join('\n');
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AzShortLink temporary password</title></head>
+<body style="margin:0;padding:0;background-color:#eef2f5;color:#17212b;font-family:Arial,Helvetica,sans-serif">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background-color:#eef2f5"><tr><td align="center" style="padding:32px 12px">
+    <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background-color:#fff;border:1px solid #d7e0e7">
+      <tr><td style="padding:24px 32px;background-color:#17212b;border-bottom:4px solid #00a4ef;color:#fff"><strong style="font-size:23px">AzShortLink</strong><div style="margin-top:6px;color:#b9c8d4;font-size:13px">Password reset</div></td></tr>
+      <tr><td style="padding:32px"><h1 style="margin:0 0 16px;font-size:24px">Hi ${safeUsername},</h1><p style="color:#405261;line-height:24px">Use this temporary password to sign in:</p>
+        <div style="margin:24px 0;padding:18px;background-color:#f4f8fb;border-left:4px solid #00a4ef;font-family:Consolas,monospace;font-size:20px;font-weight:bold;word-break:break-all">${safeTemporaryPassword}</div>
+        <p style="color:#405261;line-height:24px">Your username is case-sensitive. Change this password immediately from the Account tab after signing in.</p>
+        <p style="margin-bottom:0;color:#627482;font-size:13px;line-height:20px">If you did not request this reset, sign in and contact an administrator through the Help tab.</p>
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
+  return { subject: 'Your AzShortLink temporary password', plainText, html };
+}
+
+async function sendPasswordResetEmail(config, { recipient, username, displayName, temporaryPassword }) {
+  if (!config.emailConnectionString || !config.emailSenderAddress) {
+    const err = new Error('Password reset email delivery is not configured.');
+    err.code = 'EMAIL_NOT_CONFIGURED';
+    throw err;
+  }
+
+  try {
+    const client = new EmailClient(config.emailConnectionString);
+    const poller = await client.beginSend({
+      senderAddress: config.emailSenderAddress,
+      recipients: { to: [{ address: recipient, displayName }] },
+      content: buildPasswordResetEmailContent({ username, temporaryPassword })
+    });
+    const result = await poller.pollUntilDone();
+    if (result && result.status && String(result.status).toLowerCase() !== 'succeeded') throw new Error('Email delivery did not succeed.');
+    return result;
+  } catch (cause) {
+    const err = new Error('Password reset email delivery failed.');
+    err.code = 'EMAIL_DELIVERY_FAILED';
+    err.cause = cause;
+    throw err;
+  }
+}
+
 async function sendVerificationEmail(config, { recipient, username, displayName, verificationUrl }) {
   if (!config.emailConnectionString || !config.emailSenderAddress) {
     const err = new Error('Email verification delivery is not configured.');
@@ -130,4 +185,4 @@ async function sendVerificationEmail(config, { recipient, username, displayName,
   }
 }
 
-module.exports = { buildVerificationEmailContent, sendVerificationEmail };
+module.exports = { buildPasswordResetEmailContent, buildVerificationEmailContent, sendPasswordResetEmail, sendVerificationEmail };

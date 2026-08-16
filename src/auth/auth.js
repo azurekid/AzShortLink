@@ -146,6 +146,10 @@ function generateApiKey() {
   return { key, hash: hashApiKey(key), displayPrefix: key.slice(0, 12) };
 }
 
+function generateTemporaryPassword() {
+  return `${crypto.randomBytes(15).toString('base64url')}!9aA`;
+}
+
 function hashApiKey(key) {
   return crypto.createHash('sha256').update(String(key)).digest('hex');
 }
@@ -162,6 +166,7 @@ module.exports = {
   getSessionIdentity,
   isDashboardSessionValid,
   generateApiKey,
+  generateTemporaryPassword,
   hashApiKey,
   timingSafeEqualString
 };

@@ -35,6 +35,7 @@ function renderLoginPage(options = {}) {
     <input id="password" name="password" type="password" autocomplete="current-password" required />
     <button type="submit">Sign in</button>
     <button id="passkey-login" type="button">Sign in with a passkey</button>
+    <p><a href="/dashboard/forgot-password">Forgot password?</a></p>
     <div class="error">${errorMessage}</div>
   </form>
   <script src="/passkeys.js"></script>

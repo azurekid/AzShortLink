@@ -3,8 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createSessionToken, verifySessionToken, verifyCredentials } = require('../src/auth/auth');
+const { createSessionToken, generateTemporaryPassword, verifySessionToken, verifyCredentials } = require('../src/auth/auth');
 const { InMemoryStorage } = require('../src/storage/inMemoryStorage');
+const { renderLoginPage } = require('../src/pages/loginPage');
 const bcrypt = require('bcryptjs');
 
 test('round trips a signed user identity', () => {
@@ -53,4 +54,17 @@ test('preserves the signup password when email verification activates the profil
   const identity = await verifyCredentials('VerifiedUser', password, storage, '');
   assert.equal(identity.username, 'VerifiedUser');
   assert.deepEqual(identity.riskFlags, ['SHARED_SIGNUP_IP', 'SHARED_DEVICE_SIGNAL']);
+});
+
+test('generates strong URL-safe temporary passwords', () => {
+  const passwords = new Set(Array.from({ length: 20 }, () => generateTemporaryPassword()));
+
+  assert.equal(passwords.size, 20);
+  for (const password of passwords) {
+    assert.match(password, /^[A-Za-z0-9_-]{20}!9aA$/);
+  }
+});
+
+test('login page links to self-service password reset', () => {
+  assert.match(renderLoginPage(), /href="\/dashboard\/forgot-password">Forgot password\?<\/a>/);
 });

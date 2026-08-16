@@ -11,6 +11,7 @@ const { ShortLinkService } = require('./src/services/shortLinkService');
 const { renderUserDashboard } = require('./src/dashboard/user');
 const { renderAdminDashboard } = require('./src/dashboard/admin');
 const { renderLoginPage } = require('./src/pages/loginPage');
+const { renderForgotPasswordPage } = require('./src/pages/forgotPasswordPage');
 const { renderSignupPage } = require('./src/pages/signupPage');
 const { renderNotFoundPage } = require('./src/pages/notFoundPage');
 const {
@@ -41,6 +42,7 @@ const {
   buildRiskSignals
 } = require('./src/auth/identity');
 const { sendVerificationEmail } = require('./src/services/email');
+const { resetPasswordAndSendEmail } = require('./src/services/passwordReset');
 const {
   signChallengeState,
   verifyChallengeState,
@@ -735,6 +737,7 @@ function createAttemptThrottle(maxAttempts = LOGIN_MAX_ATTEMPTS, lockoutMs = LOG
 }
 
 const loginThrottle = createAttemptThrottle();
+const passwordResetThrottle = createAttemptThrottle();
 // Invite codes are bearer tokens for account creation, so guessing them is throttled too.
 const signupThrottle = createAttemptThrottle();
 // Audit writes have their own budget so repeated anonymous failures cannot fill the table.
@@ -783,6 +786,91 @@ registerHttp('dashboardLoginPage', {
       status: 200,
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
       body: renderLoginPage()
+    };
+  }
+});
+
+registerHttp('forgotPasswordPage', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'dashboard/forgot-password',
+  handler: async () => ({
+    status: 200,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+    body: renderForgotPasswordPage()
+  })
+});
+
+registerHttp('forgotPasswordSubmit', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'dashboard/forgot-password',
+  handler: async (request) => {
+    const genericMessage = 'If the username and email address match an active account, a temporary password has been sent.';
+    const ip = getClientIp(request);
+    if (passwordResetThrottle.isLockedOut(ip)) {
+      return {
+        status: 429,
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+        body: renderForgotPasswordPage({ message: genericMessage })
+      };
+    }
+    passwordResetThrottle.recordFailedAttempt(ip);
+
+    const contentType = request.headers.get('content-type') || '';
+    let username = '';
+    let email = '';
+    try {
+      if (contentType.includes('application/json')) {
+        const body = await request.json();
+        username = typeof body.username === 'string' ? body.username.trim() : '';
+        email = normalizeEmail(body.email);
+      } else {
+        const form = new URLSearchParams(await request.text());
+        username = (form.get('username') || '').trim();
+        email = normalizeEmail(form.get('email'));
+      }
+    } catch {
+      // Return the same response as every other outcome to avoid account enumeration.
+    }
+
+    try {
+      const storage = await storagePromise;
+      const user = username ? await storage.getUser(username) : null;
+      const suppliedEmailHash = email ? hashIdentityValue(email, config.identityHashSecret) : '';
+      const emailMatches = user && suppliedEmailHash && timingSafeEqualString(user.emailHash || '', suppliedEmailHash);
+      const canReset = emailMatches && user.emailVerifiedAt && (user.status || 'active') === 'active';
+
+      if (canReset) {
+        try {
+          const updated = await resetPasswordAndSendEmail({ storage, user, email, config });
+          if (updated) {
+            await recordAuditEvent(storage, {
+              action: ACTIONS.PASSWORD_RESET_SELF_SERVICE,
+              actorId: user.id,
+              actorUsername: user.username,
+              actorRole: user.role,
+              ...buildAuditContext(request, { authenticationMethod: 'email' }),
+              details: { userName: user.username }
+            });
+          }
+        } catch (err) {
+          console.error('[email] Password reset delivery failed.', {
+            code: err.code,
+            causeCode: err.cause?.code,
+            statusCode: err.cause?.statusCode,
+            causeMessage: err.cause?.message
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[auth] Password reset request failed.', { code: err.code, message: err.message });
+    }
+
+    return {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+      body: renderForgotPasswordPage({ message: genericMessage })
     };
   }
 });

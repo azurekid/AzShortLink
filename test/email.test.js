@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildVerificationEmailContent, sendVerificationEmail } = require('../src/services/email');
+const { buildPasswordResetEmailContent, buildVerificationEmailContent, sendVerificationEmail } = require('../src/services/email');
 
 test('builds a personalized verification email with onboarding guidance', () => {
   const content = buildVerificationEmailContent({
@@ -31,4 +31,16 @@ test('reports missing verification email configuration explicitly', async () => 
     () => sendVerificationEmail({}, { recipient: 'user@example.com', username: 'user', displayName: 'User', verificationUrl: 'https://example.com/verify' }),
     { code: 'EMAIL_NOT_CONFIGURED', message: 'Email verification delivery is not configured.' }
   );
+});
+
+test('builds a styled temporary-password email without exposing unescaped content', () => {
+  const content = buildPasswordResetEmailContent({ username: 'User <admin>', temporaryPassword: 'Temp&Password_123' });
+
+  assert.equal(content.subject, 'Your AzShortLink temporary password');
+  assert.match(content.plainText, /Temp&Password_123/);
+  assert.match(content.plainText, /change it immediately/i);
+  assert.match(content.html, /User &lt;admin&gt;/);
+  assert.match(content.html, /Temp&amp;Password_123/);
+  assert.match(content.html, /role="presentation"/);
+  assert.doesNotMatch(content.html, /User <admin>/);
 });

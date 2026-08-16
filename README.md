@@ -34,6 +34,7 @@ AzShortLink is a self-hosted URL shortener built on Azure Functions. It combines
 
 - Single-use invites with direct sponsor, root sponsor, and depth tracking.
 - Email verification through Azure Communication Services Email.
+- Non-enumerating self-service password reset using the registered username and email address; temporary passwords are emailed once and stored only as bcrypt hashes.
 - Duplicate prevention using a keyed hash of the normalized email address.
 - Keyed IP and coarse device signals for review, never as identity proof.
 - Non-blocking signup risk flags for administrator review, plus recursive branch suspension.
