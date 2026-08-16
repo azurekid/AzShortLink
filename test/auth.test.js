@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createSessionToken, verifySessionToken, verifyCredentials } = require('../src/auth');
+const { createSessionToken, verifySessionToken, verifyCredentials } = require('../src/auth/auth');
 const { InMemoryStorage } = require('../src/storage/inMemoryStorage');
 const bcrypt = require('bcryptjs');
 

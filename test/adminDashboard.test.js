@@ -79,7 +79,7 @@ test('uses the azurehacking favicon and background artwork', () => {
   const html = renderAdminDashboard('https://azhk.in');
 
   assert.match(html, /azurehacking\.com\/images\/favicon\.svg/);
-  assert.match(html, /azure-hacking-corp\.jpg/);
+  assert.match(html, /href="\/assets\/css\/dashboard\.css"/);
   assert.match(html, /font-awesome/);
   assert.match(html, /class="bg-layer"/);
 });

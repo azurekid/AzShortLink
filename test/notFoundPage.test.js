@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { renderNotFoundPage } = require('../src/notFoundPage');
+const { renderNotFoundPage } = require('../src/pages/notFoundPage');
 
 test('not found page uses the AzureHacking-style error layout and links home to login', () => {
   const html = renderNotFoundPage();

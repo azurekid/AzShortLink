@@ -1,7 +1,7 @@
 'use strict';
 
 const { TableClient } = require('@azure/data-tables');
-const { retentionCutoffIso, generateAuditRowKey } = require('../audit');
+const { retentionCutoffIso, generateAuditRowKey } = require('../core/audit');
 
 const PARTITION_KEY = 'LINK';
 const USER_PARTITION_KEY = 'USER';

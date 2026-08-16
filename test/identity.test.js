@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeEmail, hashIdentityValue, maskEmail, createVerificationToken, verifyVerificationToken } = require('../src/identity');
+const { normalizeEmail, hashIdentityValue, maskEmail, createVerificationToken, verifyVerificationToken } = require('../src/auth/identity');
 
 test('normalizes, masks, and hashes an email without retaining its plaintext identity', () => {
   assert.equal(normalizeEmail(' Alice@Example.COM '), 'alice@example.com');

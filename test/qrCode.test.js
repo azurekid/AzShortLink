@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createQrCodePng } = require('../src/qrCode');
+const { createQrCodePng } = require('../src/services/qrCode');
 
 test('creates a downloadable PNG QR code for a short URL', async () => {
   const png = await createQrCodePng('https://azhk.in/example');

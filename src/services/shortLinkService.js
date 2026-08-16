@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { parseUserAgent, parseReferrer } = require('../userAgent');
+const { parseUserAgent, parseReferrer } = require('../analytics/userAgent');
 
 const ALIAS_PATTERN = /^[A-Za-z0-9_-]{4,32}$/;
 const MAX_GENERATION_ATTEMPTS = 8;

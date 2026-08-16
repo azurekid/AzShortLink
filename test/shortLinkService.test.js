@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { ShortLinkService } = require('../src/service/shortLinkService');
+const { ShortLinkService } = require('../src/services/shortLinkService');
 const { InMemoryStorage } = require('../src/storage/inMemoryStorage');
 
 test('creates short link with generated alias', async () => {
@@ -192,7 +192,7 @@ test('scopes analytics to one owned short link', async () => {
 });
 
 test('issues personal API keys that resolve back to their owner', async () => {
-  const { generateApiKey, hashApiKey } = require('../src/auth');
+  const { generateApiKey, hashApiKey } = require('../src/auth/auth');
   const storage = new InMemoryStorage();
 
   await storage.createUser({ username: 'Alice', passwordHash: 'hash', displayName: 'Alice' });

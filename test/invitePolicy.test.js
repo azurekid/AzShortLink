@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { DEFAULT_INVITE_POLICY, evaluateInviteEligibility, buildInviteAncestry } = require('../src/invitePolicy');
+const { DEFAULT_INVITE_POLICY, evaluateInviteEligibility, buildInviteAncestry } = require('../src/auth/invitePolicy');
 
 function eligibleUser(overrides = {}) {
   return {

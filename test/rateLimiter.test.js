@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createRateLimiter } = require('../src/rateLimiter');
+const { createRateLimiter } = require('../src/core/rateLimiter');
 
 test('limits each client independently and resets after the window', () => {
   let currentTime = 1000;

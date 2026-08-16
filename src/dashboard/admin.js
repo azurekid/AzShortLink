@@ -241,7 +241,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
               <button id="export-audit-csv" class="button-secondary button-compact" type="button"><i class="fas fa-file-csv"></i>Export CSV</button>
             </div>
           </div>
-          <div class="stack" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));display:grid;gap:10px;margin-bottom:14px">
+          <div class="stack audit-filters">
             <div class="field"><label for="audit-filter-action">Action</label>
               <select id="audit-filter-action">
                 <option value="">All actions</option>

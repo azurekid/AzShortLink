@@ -4,14 +4,14 @@ const { app } = require('@azure/functions');
 const bcrypt = require('bcryptjs');
 const path = require('node:path');
 const { readFile } = require('node:fs/promises');
-const { getConfig } = require('./src/config');
+const { getConfig } = require('./src/core/config');
 const { createStorage } = require('./src/storage');
-const { ShortLinkService } = require('./src/service/shortLinkService');
+const { ShortLinkService } = require('./src/services/shortLinkService');
 const { renderUserDashboard } = require('./src/dashboard/user');
 const { renderAdminDashboard } = require('./src/dashboard/admin');
-const { renderLoginPage } = require('./src/loginPage');
-const { renderSignupPage } = require('./src/signupPage');
-const { renderNotFoundPage } = require('./src/notFoundPage');
+const { renderLoginPage } = require('./src/pages/loginPage');
+const { renderSignupPage } = require('./src/pages/signupPage');
+const { renderNotFoundPage } = require('./src/pages/notFoundPage');
 const {
   verifyCredentials,
   createSessionToken,
@@ -22,14 +22,14 @@ const {
   hashApiKey,
   API_KEY_PREFIX,
   timingSafeEqualString
-} = require('./src/auth');
-const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('./src/audit');
-const { createRateLimiter } = require('./src/rateLimiter');
-const { buildOpenApiSpec } = require('./src/openApi');
-const { renderApiDocsPage } = require('./src/apiDocsPage');
-const { createQrCodePng } = require('./src/qrCode');
-const { lookupGeoLocation } = require('./src/geoLocation');
-const { DEFAULT_INVITE_POLICY, evaluateInviteEligibility, buildInviteAncestry } = require('./src/invitePolicy');
+} = require('./src/auth/auth');
+const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('./src/core/audit');
+const { createRateLimiter } = require('./src/core/rateLimiter');
+const { buildOpenApiSpec } = require('./src/api/openApi');
+const { renderApiDocsPage } = require('./src/pages/apiDocsPage');
+const { createQrCodePng } = require('./src/services/qrCode');
+const { lookupGeoLocation } = require('./src/analytics/geoLocation');
+const { DEFAULT_INVITE_POLICY, evaluateInviteEligibility, buildInviteAncestry } = require('./src/auth/invitePolicy');
 const {
   EMAIL_PATTERN,
   normalizeEmail,
@@ -38,8 +38,8 @@ const {
   createVerificationToken,
   verifyVerificationToken,
   buildRiskSignals
-} = require('./src/identity');
-const { sendVerificationEmail } = require('./src/email');
+} = require('./src/auth/identity');
+const { sendVerificationEmail } = require('./src/services/email');
 const {
   signChallengeState,
   verifyChallengeState,
@@ -47,7 +47,7 @@ const {
   verifyRegistration,
   authenticationOptions,
   verifyAuthentication
-} = require('./src/passkeys');
+} = require('./src/auth/passkeys');
 
 const config = getConfig();
 const apiRateLimiter = createRateLimiter({
@@ -92,7 +92,7 @@ const SECURITY_HEADERS = {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com",
     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
     "script-src 'self' 'unsafe-inline' https://unpkg.com",
-    "img-src 'self' data: https://azurehacking.com https://blackcatwebshop.z13.web.core.windows.net https://tile.openstreetmap.org",
+    "img-src 'self' data: https://azurehacking.com https://tile.openstreetmap.org",
     "connect-src 'self'"
   ].join('; ')
 };
@@ -104,7 +104,7 @@ const API_DOCS_SECURITY_HEADERS = {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com",
     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
     "script-src 'self' 'unsafe-inline' https://unpkg.com",
-    "img-src 'self' data: https://azurehacking.com https://blackcatwebshop.z13.web.core.windows.net",
+    "img-src 'self' data: https://azurehacking.com",
     "connect-src 'self'"
   ].join('; ')
 };
@@ -1687,22 +1687,30 @@ registerHttp('getAuditLog', {
   }
 });
 
-registerHttp('customCss', {
+const STATIC_ASSETS = new Map([
+  ['css/dashboard.css', { file: 'css/dashboard.css', contentType: 'text/css; charset=utf-8' }],
+  ['css/auth.css', { file: 'css/auth.css', contentType: 'text/css; charset=utf-8' }],
+  ['css/not-found.css', { file: 'css/not-found.css', contentType: 'text/css; charset=utf-8' }],
+  ['css/api-docs.css', { file: 'css/api-docs.css', contentType: 'text/css; charset=utf-8' }],
+  ['css/custom.css', { file: 'css/custom.css', contentType: 'text/css; charset=utf-8' }],
+  ['images/background.jpg', { file: 'images/background.jpg', contentType: 'image/jpeg' }]
+]);
+
+registerHttp('staticAsset', {
   methods: ['GET'],
   authLevel: 'anonymous',
-  route: 'custom.css',
-  handler: async () => {
-    let css = '';
-    try {
-      css = await readFile(path.join(__dirname, 'src', 'custom.css'), 'utf8');
-    } catch {
-      css = '';
+  route: 'assets/{category}/{file}',
+  handler: async (request) => {
+    const key = `${request.params.category}/${request.params.file}`;
+    const asset = STATIC_ASSETS.get(key);
+    if (!asset) {
+      return { status: 404 };
     }
 
     return {
       status: 200,
-      headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'public, max-age=300' },
-      body: css
+      headers: { 'content-type': asset.contentType, 'cache-control': 'public, max-age=3600' },
+      body: await readFile(path.join(__dirname, 'src', 'assets', asset.file))
     };
   }
 });

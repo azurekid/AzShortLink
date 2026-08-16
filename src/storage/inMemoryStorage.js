@@ -1,6 +1,6 @@
 'use strict';
 
-const { retentionCutoffIso, generateAuditRowKey } = require('../audit');
+const { retentionCutoffIso, generateAuditRowKey } = require('../core/audit');
 
 class InMemoryStorage {
   constructor(options = {}) {

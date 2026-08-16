@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildOpenApiSpec } = require('../src/openApi');
+const { buildOpenApiSpec } = require('../src/api/openApi');
 
 test('builds a user OpenAPI document without administrator operations by default', () => {
   const spec = buildOpenApiSpec('https://short.example');

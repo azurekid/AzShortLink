@@ -156,15 +156,16 @@ Bicep writes sensitive values to Key Vault and configures versionless App Servic
 
 ```text
 index.js                    HTTP route registration
-src/auth.js                 sessions, credentials, and API keys
-src/identity.js             identity hashing and verification tokens
-src/passkeys.js             WebAuthn server operations
-src/invitePolicy.js         invite eligibility and ancestry
-src/service/                short-link domain logic
+src/api/                    OpenAPI document construction
+src/analytics/              user-agent and geographic analytics
+src/assets/css/             page, dashboard, and deployment styles
+src/assets/images/          locally served visual assets
+src/auth/                   sessions, identity, passkeys, and invite policy
+src/core/                   configuration, auditing, and rate limiting
+src/pages/                  login, signup, error, and Swagger templates
+src/services/               short links, email, and QR code services
 src/storage/                storage adapters
 src/dashboard/              dashboard UI
-src/openApi.js              OpenAPI builder
-src/apiDocsPage.js          branded Swagger UI
 infra/                      Bicep infrastructure
 test/                       Node test suite
 docs/                       project documentation

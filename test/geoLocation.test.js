@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeIp, lookupGeoLocation } = require('../src/geoLocation');
+const { normalizeIp, lookupGeoLocation } = require('../src/analytics/geoLocation');
 
 test('normalizes trusted proxy IP header values', () => {
   assert.equal(normalizeIp('8.8.8.8, 10.0.0.1'), '8.8.8.8');

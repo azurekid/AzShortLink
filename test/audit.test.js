@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { InMemoryStorage } = require('../src/storage/inMemoryStorage');
-const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('../src/audit');
+const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('../src/core/audit');
 
 test('records and lists audit events newest first', async () => {
   const storage = new InMemoryStorage();

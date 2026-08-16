@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { signChallengeState, verifyChallengeState } = require('../src/passkeys');
+const { signChallengeState, verifyChallengeState } = require('../src/auth/passkeys');
 
 test('signs short-lived passkey challenge state for one purpose', () => {
   const state = signChallengeState({ purpose: 'registration', challenge: 'abc', userId: 'alice' }, 'secret', 1000);
