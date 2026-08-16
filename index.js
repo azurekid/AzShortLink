@@ -37,14 +37,14 @@ const {
   normalizeEmail,
   hashIdentityValue,
   maskEmail,
-  createPasswordResetToken,
   createVerificationToken,
   verifyPasswordResetToken,
   verifyVerificationToken,
   buildRiskSignals
 } = require('./src/auth/identity');
-const { sendPasswordResetEmail, sendVerificationEmail } = require('./src/services/email');
+const { sendVerificationEmail } = require('./src/services/email');
 const { createPasswordResetQueue } = require('./src/services/passwordResetQueue');
+const { processPasswordResetMessage } = require('./src/services/passwordResetProcessor');
 const {
   signChallengeState,
   verifyChallengeState,
@@ -856,25 +856,14 @@ registerHttp('forgotPasswordSubmit', {
 app.storageQueue('processPasswordReset', {
   queueName: 'password-resets',
   connection: 'AzureWebJobsStorage',
-  handler: async (message) => {
-    const payload = typeof message === 'string' ? JSON.parse(message) : message;
-    const username = typeof payload?.username === 'string' ? payload.username.trim() : '';
-    const email = normalizeEmail(payload?.email);
-    if (!username || !EMAIL_PATTERN.test(email)) return;
-
-    const storage = await storagePromise;
-    const user = await storage.getUser(username);
-    const suppliedEmailHash = hashIdentityValue(email, config.identityHashSecret);
-    const emailMatches = user && timingSafeEqualString(user.emailHash || '', suppliedEmailHash);
-    if (!emailMatches || !user.emailVerifiedAt || (user.status || 'active') !== 'active') return;
-
-    const token = createPasswordResetToken(user, config.identityHashSecret);
-    await sendPasswordResetEmail(config, {
-      recipient: email,
-      username: user.username,
-      displayName: user.displayName,
-      resetUrl: `${config.baseUrl}/dashboard/reset-password?token=${encodeURIComponent(token)}`
-    });
+  handler: async (message, context) => {
+    try {
+      const result = await processPasswordResetMessage(message, { storage: await storagePromise, config });
+      context.log('[password-reset] Queue request processed.', { sent: result.sent, reason: result.reason || 'sent' });
+    } catch (err) {
+      context.error('[password-reset] Queue processing failed.', { code: err.code, statusCode: err.statusCode, message: err.message });
+      throw err;
+    }
   }
 });
 

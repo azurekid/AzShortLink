@@ -13,3 +13,19 @@ test('creates a queue service for local connection strings', () => {
 
   assert.equal(typeof queue.enqueue, 'function');
 });
+
+test('sends the full submitted email in a raw JSON queue message', async () => {
+  let sentMessage = '';
+  let createCalls = 0;
+  const queue = createPasswordResetQueue({}, {
+    client: {
+      async createIfNotExists() { createCalls += 1; },
+      async sendMessage(message) { sentMessage = message; }
+    }
+  });
+
+  await queue.enqueue({ username: 'azurekid', email: 'user@example.com' });
+
+  assert.equal(createCalls, 0);
+  assert.deepEqual(JSON.parse(sentMessage), { username: 'azurekid', email: 'user@example.com' });
+});
