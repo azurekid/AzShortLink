@@ -362,7 +362,8 @@ ${renderDocumentHead('AzShortLink Dashboard')}
             (isSelf ? '' : ' <button class="button-danger button-compact" type="button" data-delete-user="' + escapeHtml(item.username) + '">Delete</button>');
           const initial = escapeHtml((item.displayName || item.username || '?').slice(0, 1).toUpperCase());
           const joined = item.createdAt ? String(item.createdAt).slice(0, 10) : '-';
-          const trustState = item.branchSuspended ? 'branch suspended' : (item.status || 'active');
+          const riskSummary = (item.riskFlags || []).length ? ' / ' + item.riskFlags.join(', ') : '';
+          const trustState = (item.branchSuspended ? 'branch suspended' : (item.status || 'active')) + riskSummary;
           return '<article class="profile-row">' +
             '<div class="profile-identity"><span class="profile-avatar">' + initial + '</span><div class="profile-name"><strong>' + escapeHtml(item.displayName || item.username) + '</strong><span class="mono">' + escapeHtml(item.username) + '</span></div></div>' +
             '<div class="profile-meta">' +

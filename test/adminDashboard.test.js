@@ -120,3 +120,10 @@ test('renders visual statistics charts', () => {
   assert.match(html, /id="location-map"/);
   assert.match(html, /L\.circleMarker/);
 });
+
+test('surfaces non-blocking signup risk flags for administrator review', () => {
+  const html = renderAdminDashboard('https://azhk.in');
+
+  assert.match(html, /item\.riskFlags/);
+  assert.match(html, /riskSummary/);
+});

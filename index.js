@@ -1292,7 +1292,10 @@ registerHttp('dashboardVerifyEmail', {
     if (!user || user.emailHash !== claims.emailHash) {
       return { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS }, body: renderSignupPage({ error: 'This verification link is invalid.' }) };
     }
-    const status = user.riskFlags && user.riskFlags.length ? 'pending_approval' : 'active';
+    // Verified email is the activation boundary. Risk flags remain on the profile for
+    // administrator review, but broad network/browser signals must not invalidate a
+    // password or block an otherwise verified account.
+    const status = 'active';
     await storage.updateUserIdentity(user.id, { emailVerifiedAt: new Date().toISOString(), status });
     await recordAuditEvent(storage, {
       action: ACTIONS.EMAIL_VERIFIED,
@@ -1305,7 +1308,7 @@ registerHttp('dashboardVerifyEmail', {
     return {
       status: 200,
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
-      body: renderSignupPage({ message: status === 'active' ? 'Email verified. You can now sign in.' : 'Email verified. An administrator must approve this account.' })
+      body: renderSignupPage({ message: 'Email verified. You can now sign in.' })
     };
   }
 });

@@ -31,3 +31,26 @@ test('verifies credentials against a stored user profile', async () => {
   assert.equal(await verifyCredentials('Alice', 'wrong password', storage, ''), null);
   assert.equal(await verifyCredentials('alice', 'correct horse battery staple', storage, ''), null);
 });
+
+test('preserves the signup password when email verification activates the profile', async () => {
+  const storage = new InMemoryStorage();
+  const password = 'verified account password';
+  await storage.createUser({
+    username: 'VerifiedUser',
+    passwordHash: await bcrypt.hash(password, 4),
+    displayName: 'Verified User',
+    role: 'user',
+    status: 'pending_email',
+    riskFlags: ['SHARED_SIGNUP_IP', 'SHARED_DEVICE_SIGNAL'],
+    createdAt: new Date().toISOString()
+  });
+
+  await storage.updateUserIdentity('VerifiedUser', {
+    emailVerifiedAt: new Date().toISOString(),
+    status: 'active'
+  });
+
+  const identity = await verifyCredentials('VerifiedUser', password, storage, '');
+  assert.equal(identity.username, 'VerifiedUser');
+  assert.deepEqual(identity.riskFlags, ['SHARED_SIGNUP_IP', 'SHARED_DEVICE_SIGNAL']);
+});

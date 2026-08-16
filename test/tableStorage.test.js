@@ -252,6 +252,29 @@ test('deleteUser returns false when the profile does not exist', async () => {
   assert.equal(usersClient.deleted.length, 0);
 });
 
+test('email verification identity updates preserve the stored password hash', async () => {
+  const { storage } = makeStorage({
+    usersEntities: [{
+      partitionKey: 'USER',
+      rowKey: 'verified-user',
+      username: 'verified-user',
+      passwordHash: 'original-signup-hash',
+      status: 'pending_email',
+      riskFlags: JSON.stringify(['SHARED_SIGNUP_IP'])
+    }]
+  });
+
+  await storage.updateUserIdentity('verified-user', {
+    emailVerifiedAt: '2026-08-16T12:00:00.000Z',
+    status: 'active'
+  });
+
+  const user = await storage.getUser('verified-user');
+  assert.equal(user.passwordHash, 'original-signup-hash');
+  assert.equal(user.status, 'active');
+  assert.deepEqual(user.riskFlags, ['SHARED_SIGNUP_IP']);
+});
+
 test('getHealthDetails reports each table independently', async () => {
   const { storage, auditClient } = makeStorage();
   auditClient.getAccessPolicy = async () => {
