@@ -2,6 +2,7 @@
 
 const { TableClient } = require('@azure/data-tables');
 const { retentionCutoffIso, generateAuditRowKey } = require('../core/audit');
+const { appendHelpMessage, formatTicketNumber, getHelpMessages } = require('../services/helpRequests');
 
 const PARTITION_KEY = 'LINK';
 const USER_PARTITION_KEY = 'USER';
@@ -385,8 +386,9 @@ class TableStorage {
   }
 
   async createHelpRequest({ id, userId, username, subject, message, createdAt }) {
-    const request = { id, ticketNumber: `AZSL-${id.toUpperCase()}`, userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '', closedAt: '', closedBy: '' };
-    await this.usersClient.createEntity({ partitionKey: HELP_PARTITION_KEY, rowKey: id, ...request });
+    const messages = [{ role: 'user', author: username, text: message, createdAt }];
+    const request = { id, ticketNumber: formatTicketNumber(id), userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '', closedAt: '', closedBy: '', messages };
+    await this.usersClient.createEntity({ partitionKey: HELP_PARTITION_KEY, rowKey: id, ...request, messages: JSON.stringify(messages) });
     return request;
   }
 
@@ -400,7 +402,7 @@ class TableStorage {
     for await (const item of entities) {
       requests.push({
         id: item.rowKey,
-        ticketNumber: item.ticketNumber || `AZSL-${String(item.rowKey).toUpperCase()}`,
+        ticketNumber: formatTicketNumber(item.rowKey),
         userId: item.userId || '',
         username: item.username || item.userId || '',
         subject: item.subject || '',
@@ -411,7 +413,8 @@ class TableStorage {
         respondedAt: item.respondedAt || '',
         respondedBy: item.respondedBy || '',
         closedAt: item.closedAt || '',
-        closedBy: item.closedBy || ''
+        closedBy: item.closedBy || '',
+        messages: getHelpMessages(item)
       });
     }
     return requests.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
@@ -419,18 +422,21 @@ class TableStorage {
 
   async respondToHelpRequest(id, { response, respondedAt, respondedBy }) {
     try {
+      const existing = await this.usersClient.getEntity(HELP_PARTITION_KEY, String(id).trim());
+      const messages = appendHelpMessage(existing, { role: 'admin', author: respondedBy, text: response, createdAt: respondedAt });
       await this.usersClient.updateEntity({
         partitionKey: HELP_PARTITION_KEY,
         rowKey: String(id).trim(),
         response,
         respondedAt,
         respondedBy,
-        status: 'answered'
+        status: 'answered',
+        messages: JSON.stringify(messages)
       }, 'Merge');
       const item = await this.usersClient.getEntity(HELP_PARTITION_KEY, String(id).trim());
       return {
         id: item.rowKey,
-        ticketNumber: item.ticketNumber || `AZSL-${String(item.rowKey).toUpperCase()}`,
+        ticketNumber: formatTicketNumber(item.rowKey),
         userId: item.userId || '',
         username: item.username || item.userId || '',
         subject: item.subject || '',
@@ -441,8 +447,28 @@ class TableStorage {
         respondedAt: item.respondedAt || '',
         respondedBy: item.respondedBy || '',
         closedAt: item.closedAt || '',
-        closedBy: item.closedBy || ''
+        closedBy: item.closedBy || '',
+        messages: getHelpMessages(item)
       };
+    } catch (err) {
+      if (err && err.statusCode === 404) return null;
+      throw err;
+    }
+  }
+
+  async addHelpRequestMessage(id, { userId, author, role, text, createdAt }) {
+    const requestId = String(id).trim();
+    try {
+      const existing = await this.usersClient.getEntity(HELP_PARTITION_KEY, requestId);
+      if ((userId && existing.userId !== userId) || existing.status === 'closed') return null;
+      const messages = appendHelpMessage(existing, { role, author, text, createdAt });
+      await this.usersClient.updateEntity({
+        partitionKey: HELP_PARTITION_KEY,
+        rowKey: requestId,
+        messages: JSON.stringify(messages),
+        status: role === 'admin' ? 'answered' : 'open'
+      }, 'Merge');
+      return (await this.listHelpRequests()).find((request) => request.id === requestId) || null;
     } catch (err) {
       if (err && err.statusCode === 404) return null;
       throw err;

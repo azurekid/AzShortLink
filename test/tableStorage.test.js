@@ -91,7 +91,9 @@ test('stores, filters and responds to help requests in the users table', async (
   });
 
   assert.equal(created.status, 'open');
-  assert.equal(created.ticketNumber, 'AZSL-REQUEST-1');
+  assert.equal(created.ticketNumber, 'AZSL-REQU-EST1-0000');
+  assert.equal(created.messages.length, 1);
+  assert.equal(created.messages[0].role, 'user');
   assert.equal(usersClient.created[0].partitionKey, 'HELP');
   assert.deepEqual((await storage.listHelpRequests('alice')).map((request) => request.id), ['request-1']);
   assert.match(usersClient.filters.at(-1), /userId eq 'alice'/);
@@ -105,6 +107,19 @@ test('stores, filters and responds to help requests in the users table', async (
   assert.equal(answered.status, 'answered');
   assert.equal(answered.respondedBy, 'admin');
   assert.equal(answered.response, 'Your account must be at least seven days old.');
+  assert.equal(answered.messages.length, 2);
+  assert.equal(answered.messages[1].role, 'admin');
+
+  const followedUp = await storage.addHelpRequestMessage('request-1', {
+    userId: 'alice',
+    author: 'Alice',
+    role: 'user',
+    text: 'I have one more question.',
+    createdAt: '2026-01-02T01:00:00.000Z'
+  });
+  assert.equal(followedUp.status, 'open');
+  assert.equal(followedUp.messages.length, 3);
+  assert.equal(followedUp.messages[2].text, 'I have one more question.');
 
   const closed = await storage.setHelpRequestStatus('request-1', {
     userId: 'alice',

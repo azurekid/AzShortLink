@@ -117,7 +117,7 @@ Profiles retain direct sponsor, root sponsor, invitation depth, status, branch s
 
 | Control | Default |
 |---|---:|
-| Minimum account age | 7 days |
+| Activity threshold | Account age 3 days or 3 owned links with redirects |
 | Minimum owned links | 3 |
 | Maximum depth | 3 |
 | Maximum descendants per root | 100 |

@@ -53,6 +53,8 @@
       border-radius:8px; font:inherit; font-weight:700; transition:all var(--ease);
     }
     button:hover { transform:translateY(-1px); box-shadow:var(--glow); filter:brightness(1.08); }
+    button:disabled { cursor:wait; opacity:.72; transform:none; box-shadow:none; filter:none; }
+    .status { min-height:20px; margin-top:14px; color:var(--muted); font-size:.86rem; }
     .error { min-height:20px; margin-top:14px; color:var(--danger); font-size:.86rem; }
     a { color:var(--accent); }
 .auth-panel {

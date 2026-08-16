@@ -1,6 +1,7 @@
 'use strict';
 
 const { retentionCutoffIso, generateAuditRowKey } = require('../core/audit');
+const { appendHelpMessage, formatTicketNumber, getHelpMessages } = require('../services/helpRequests');
 
 class InMemoryStorage {
   constructor(options = {}) {
@@ -202,7 +203,7 @@ class InMemoryStorage {
   }
 
   async createHelpRequest({ id, userId, username, subject, message, createdAt }) {
-    const request = { id, ticketNumber: `AZSL-${id.toUpperCase()}`, userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '', closedAt: '', closedBy: '' };
+    const request = { id, ticketNumber: formatTicketNumber(id), userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '', closedAt: '', closedBy: '', messages: [{ role: 'user', author: username, text: message, createdAt }] };
     this.helpRequests.set(id, request);
     return { ...request };
   }
@@ -211,13 +212,23 @@ class InMemoryStorage {
     return Array.from(this.helpRequests.values())
       .filter((request) => !userId || request.userId === userId)
       .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
-      .map((request) => ({ ...request }));
+      .map((request) => ({ ...request, ticketNumber: formatTicketNumber(request.id), messages: getHelpMessages(request) }));
   }
 
   async respondToHelpRequest(id, { response, respondedAt, respondedBy }) {
     const request = this.helpRequests.get(String(id).trim());
     if (!request) return null;
-    const updated = { ...request, response, respondedAt, respondedBy, status: 'answered' };
+    const messages = appendHelpMessage(request, { role: 'admin', author: respondedBy, text: response, createdAt: respondedAt });
+    const updated = { ...request, response, respondedAt, respondedBy, status: 'answered', messages };
+    this.helpRequests.set(request.id, updated);
+    return { ...updated };
+  }
+
+  async addHelpRequestMessage(id, { userId, author, role, text, createdAt }) {
+    const request = this.helpRequests.get(String(id).trim());
+    if (!request || (userId && request.userId !== userId) || request.status === 'closed') return null;
+    const messages = appendHelpMessage(request, { role, author, text, createdAt });
+    const updated = { ...request, messages, status: role === 'admin' ? 'answered' : 'open' };
     this.helpRequests.set(request.id, updated);
     return { ...updated };
   }

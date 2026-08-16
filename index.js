@@ -1388,9 +1388,10 @@ registerHttp('createInvite', {
 
       const sponsor = await storage.getUser(identity.id);
       const ownedLinks = await storage.listLinks(1000, identity.id);
+      const legitimateUsedLinkCount = ownedLinks.filter((link) => (Number(link.redirectCount) || 0) > 0).length;
       const rootSponsorUserId = (sponsor && sponsor.rootSponsorUserId) || identity.id;
       const rootDescendantCount = await storage.countRootDescendants(rootSponsorUserId);
-      const eligibility = evaluateInviteEligibility({ user: sponsor, ownedLinkCount: ownedLinks.length, rootDescendantCount });
+      const eligibility = evaluateInviteEligibility({ user: sponsor, legitimateUsedLinkCount, rootDescendantCount });
       if (!eligibility.allowed) {
         await recordAuditEvent(storage, {
           action: ACTIONS.INVITE_CREATION_DENIED,
@@ -1953,6 +1954,40 @@ registerHttp('closeHelpRequest', {
   }
 });
 
+registerHttp('addHelpRequestMessage', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/help/{id}/messages',
+  handler: async (request) => {
+    const identity = await resolveSessionIdentity(request);
+    if (!identity) return unauthorizedResponse();
+
+    const payload = await request.json().catch(() => ({}));
+    const message = typeof payload.message === 'string' ? payload.message.trim() : '';
+    if (!message || message.length > 2000) {
+      return { status: 400, jsonBody: { error: 'Reply must be 1-2000 characters.' } };
+    }
+
+    try {
+      const storage = await storagePromise;
+      const helpRequest = await storage.addHelpRequestMessage(request.params.id, {
+        userId: identity.id,
+        author: identity.username,
+        role: 'user',
+        text: message,
+        createdAt: new Date().toISOString()
+      });
+      return helpRequest
+        ? { status: 201, jsonBody: helpRequest }
+        : { status: 404, jsonBody: { error: 'Open help request not found.' } };
+    } catch (err) {
+      if (err.code === 'HELP_THREAD_FULL') return { status: 409, jsonBody: { error: err.message } };
+      if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
+      return { status: 500, jsonBody: { error: 'Unable to add the reply.' } };
+    }
+  }
+});
+
 registerHttp('respondToHelpRequest', {
   methods: ['PATCH'],
   authLevel: 'anonymous',
@@ -1965,8 +2000,8 @@ registerHttp('respondToHelpRequest', {
     const hasResponse = typeof payload.response === 'string';
     const response = hasResponse ? payload.response.trim() : '';
     const status = payload.status === 'closed' || payload.status === 'open' || payload.status === 'answered' ? payload.status : '';
-    if ((!hasResponse && !status) || (hasResponse && (!response || response.length > 4000))) {
-      return { status: 400, jsonBody: { error: 'Provide a 1-4000 character response or a valid status.' } };
+    if ((!hasResponse && !status) || (hasResponse && (!response || response.length > 2000))) {
+      return { status: 400, jsonBody: { error: 'Provide a 1-2000 character response or a valid status.' } };
     }
 
     try {
@@ -1979,6 +2014,7 @@ registerHttp('respondToHelpRequest', {
         ? { status: 200, jsonBody: helpRequest }
         : { status: 404, jsonBody: { error: 'Help request not found.' } };
     } catch (err) {
+      if (err.code === 'HELP_THREAD_FULL') return { status: 409, jsonBody: { error: err.message } };
       if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
       return { status: 500, jsonBody: { error: 'Unable to respond to the help request.' } };
     }

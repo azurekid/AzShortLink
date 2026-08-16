@@ -1,13 +1,13 @@
 'use strict';
 
 const DEFAULT_INVITE_POLICY = Object.freeze({
-  minimumAccountAgeDays: 7,
-  minimumLegitimateLinks: 3,
+  minimumAccountAgeDays: 3,
+  minimumLegitimateUsedLinks: 3,
   maximumDepth: 3,
   maximumRootDescendants: 100
 });
 
-function evaluateInviteEligibility({ user, ownedLinkCount, rootDescendantCount, now = Date.now(), policy = DEFAULT_INVITE_POLICY }) {
+function evaluateInviteEligibility({ user, legitimateUsedLinkCount, rootDescendantCount, now = Date.now(), policy = DEFAULT_INVITE_POLICY }) {
   if (!user) {
     return { allowed: false, reason: 'Profile not found.' };
   }
@@ -22,11 +22,13 @@ function evaluateInviteEligibility({ user, ownedLinkCount, rootDescendantCount, 
   }
 
   const accountAgeMs = now - Date.parse(user.createdAt || '');
-  if (!Number.isFinite(accountAgeMs) || accountAgeMs < policy.minimumAccountAgeDays * 24 * 60 * 60 * 1000) {
-    return { allowed: false, reason: `Your account must be at least ${policy.minimumAccountAgeDays} days old.` };
-  }
-  if (ownedLinkCount < policy.minimumLegitimateLinks) {
-    return { allowed: false, reason: `Create at least ${policy.minimumLegitimateLinks} legitimate links before inviting someone.` };
+  const meetsAccountAge = Number.isFinite(accountAgeMs) && accountAgeMs >= policy.minimumAccountAgeDays * 24 * 60 * 60 * 1000;
+  const meetsUsedLinks = legitimateUsedLinkCount >= policy.minimumLegitimateUsedLinks;
+  if (!meetsAccountAge && !meetsUsedLinks) {
+    return {
+      allowed: false,
+      reason: `Your account must be at least ${policy.minimumAccountAgeDays} days old or have ${policy.minimumLegitimateUsedLinks} legitimately used links.`
+    };
   }
   if ((Number(user.inviteDepth) || 0) >= policy.maximumDepth) {
     return { allowed: false, reason: 'This invitation chain has reached its maximum depth.' };

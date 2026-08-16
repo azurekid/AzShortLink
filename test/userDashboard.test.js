@@ -49,7 +49,10 @@ test('provides a help tab for submitting requests and viewing responses', () => 
   assert.match(html, /id="help-form"/);
   assert.match(html, /id="help-requests"/);
   assert.match(html, /apiRequest\('\/api\/help'/);
-  assert.match(html, /Administrator response/);
+  assert.match(html, /class="stack help-reply-form"/);
+  assert.match(html, /\/messages'/);
+  assert.match(html, /Send reply/);
+  assert.match(html, /formatDateTime\(message\.createdAt\)/);
   assert.match(html, /Ticket ' \+ escapeHtml\(item\.ticketNumber\)/);
   assert.match(html, /data-close-help/);
   assert.match(html, /const form = event\.currentTarget;[\s\S]*form\.reset\(\)/);

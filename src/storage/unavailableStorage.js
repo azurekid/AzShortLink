@@ -133,6 +133,10 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async addHelpRequestMessage() {
+    throw this.createError();
+  }
+
   async setHelpRequestStatus() {
     throw this.createError();
   }

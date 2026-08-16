@@ -17,12 +17,12 @@ function buildVerificationEmailContent({ username, verificationUrl }) {
   const plainText = [
     `Hi ${username},`,
     '',
-    'Welcome to AzShortLink. Verify your email address within 24 hours before signing in:',
+    'Welcome to Azure Hacking. Verify your email address within 24 hours before signing in:',
     verificationUrl,
     '',
     'After verification, we recommend adding a passkey from your profile for secure, passwordless sign-in.',
     '',
-    'New invites can be created once your account is at least 7 days old and you have created at least 3 legitimate links.',
+    'New invites can be created once your account is at least 3 days old or 3 of your links have been legitimately used.',
     '',
     'For any questions, use the Help tab in the dashboard.'
   ].join('\n');
@@ -75,7 +75,7 @@ function buildVerificationEmailContent({ username, verificationUrl }) {
                   <td style="padding:18px 20px">
                     <p style="margin:0 0 8px;color:#17212b;font-size:14px;line-height:21px;font-weight:700">After verification</p>
                     <p style="margin:0 0 10px;color:#405261;font-size:14px;line-height:21px">Add a passkey from your profile for secure, passwordless sign-in.</p>
-                    <p style="margin:0;color:#405261;font-size:14px;line-height:21px">You can create a new invite once your account is at least 7 days old and you have created at least 3 legitimate links.</p>
+                    <p style="margin:0;color:#405261;font-size:14px;line-height:21px">You can create a new invite once your account is at least 3 days old or 3 of your links have been legitimately used.</p>
                   </td>
                 </tr>
               </table>

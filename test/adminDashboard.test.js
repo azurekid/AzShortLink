@@ -47,6 +47,9 @@ test('provides a help tab for reviewing and responding to user requests', () => 
   assert.match(html, /method: 'PATCH'/);
   assert.match(html, /Send response/);
   assert.match(html, /item\.ticketNumber/);
+  assert.match(html, /item\.messages/);
+  assert.match(html, /formatDateTime\(message\.createdAt\)/);
+  assert.match(html, /Add response/);
   assert.match(html, /data-help-status/);
   assert.match(html, /Reopen/);
   assert.doesNotMatch(html, /id="help-form"/);

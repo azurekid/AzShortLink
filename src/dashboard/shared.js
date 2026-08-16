@@ -69,6 +69,12 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
     const copyResultButton = document.getElementById('copy-result');
     const downloadQrLink = document.getElementById('download-qr');
     const escapeHtml = (value) => String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+    const formatDateTime = (value) => {
+      if (!value) return '-';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return new Intl.DateTimeFormat(undefined, { dateStyle:'medium', timeStyle:'short' }).format(date);
+    };
     const setStatus = (message, kind = '') => { statusEl.textContent = message; statusEl.className = kind ? 'status ' + kind : 'status'; };
     const setPanelStatus = (id, message, kind = '') => { const el = document.getElementById(id); if (el) { el.textContent = message; el.className = kind ? 'status ' + kind : 'status'; } };
     async function apiRequest(path, options = {}) {

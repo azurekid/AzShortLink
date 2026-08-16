@@ -32,7 +32,8 @@ function renderSignupPage(options = {}) {
     <input id="email" name="email" type="email" autocomplete="email" required />
     <label for="password">Password</label>
     <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required />
-    <button type="submit">Create account</button>
+    <button id="create-account" type="submit">Create account</button>
+    <div id="signup-status" class="status" role="status" aria-live="polite"></div>
     <div class="error">${errorMessage}</div>`
     : `<span class="brand">AzShortLink</span>
     <h1>Invite link unavailable</h1>
@@ -54,7 +55,16 @@ function renderSignupPage(options = {}) {
 </head>
 <body>
   ${invite && !message
-    ? `<form method="POST" action="/dashboard/signup" autocomplete="off">${body}</form>`
+    ? `<form id="signup-form" method="POST" action="/dashboard/signup" autocomplete="off">${body}</form>
+  <script>
+    document.getElementById('signup-form').addEventListener('submit', () => {
+      const button = document.getElementById('create-account');
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = 'Sending verification email...';
+      document.getElementById('signup-status').textContent = 'Creating your account and sending your verification email. This may take a moment.';
+    });
+  </script>`
     : `<div class="auth-panel">${body}</div>`}
 </body>
 </html>`;

@@ -14,8 +14,8 @@ test('builds a personalized verification email with onboarding guidance', () => 
   assert.match(content.plainText, /^Hi User <admin>,/);
   assert.match(content.plainText, /before signing in/);
   assert.match(content.plainText, /passkey/);
-  assert.match(content.plainText, /at least 7 days old/);
-  assert.match(content.plainText, /at least 3 legitimate links/);
+  assert.match(content.plainText, /at least 3 days old/);
+  assert.match(content.plainText, /3 of your links have been legitimately used/);
   assert.match(content.plainText, /Help tab/);
   assert.match(content.html, /Hi User &lt;admin&gt;,/);
   assert.match(content.html, /token=a&amp;b=c/);

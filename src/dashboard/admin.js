@@ -315,11 +315,12 @@ ${renderDocumentHead('AzShortLink Dashboard')}
         const data = await apiRequest('/api/admin/help');
         const requests = data.requests || [];
         if (!requests.length) { container.innerHTML = '<p>No help requests found.</p>'; setPanelStatus('help-status', 'No requests.', 'success'); return; }
-        container.innerHTML = requests.map((item) => '<article class="result"><div class="card-header"><div><strong>' + escapeHtml(item.subject) + '</strong><p class="mono">Ticket ' + escapeHtml(item.ticketNumber) + ' / ' + escapeHtml(item.username) + ' / ' + escapeHtml(item.createdAt) + '</p></div><span class="pill ' + (item.status === 'answered' ? 'up' : '') + '">' + escapeHtml(item.status) + '</span></div>' +
-          '<p>' + escapeHtml(item.message) + '</p>' +
-          (item.response ? '<div class="status success"><strong>Response from ' + escapeHtml(item.respondedBy) + '</strong><p>' + escapeHtml(item.response) + '</p></div>' : '') +
-          '<form class="stack help-response-form" data-help-id="' + escapeHtml(item.id) + '"><div class="field"><label>Response</label><textarea maxlength="4000" rows="5" required>' + escapeHtml(item.response || '') + '</textarea></div><div class="actions"><button type="submit">' + (item.response ? 'Update response' : 'Send response') + '</button>' +
-          (item.status === 'closed' ? '<button class="button-secondary" type="button" data-help-status="open" data-help-id="' + escapeHtml(item.id) + '">Reopen</button>' : '<button class="button-secondary" type="button" data-help-status="closed" data-help-id="' + escapeHtml(item.id) + '">Close</button>') + '</div></form></article>').join('');
+        container.innerHTML = requests.map((item) => {
+          const thread = (item.messages || []).map((message) => '<div class="status ' + (message.role === 'admin' ? 'success' : '') + '"><strong>' + escapeHtml(message.role === 'admin' ? message.author + ' (administrator)' : message.author) + '</strong><p>' + escapeHtml(message.text) + '</p><span class="mono">' + escapeHtml(formatDateTime(message.createdAt)) + '</span></div>').join('');
+          return '<article class="result"><div class="card-header"><div><strong>' + escapeHtml(item.subject) + '</strong><p class="mono">Ticket ' + escapeHtml(item.ticketNumber) + ' / ' + escapeHtml(item.username) + ' / Opened ' + escapeHtml(formatDateTime(item.createdAt)) + '</p></div><span class="pill ' + (item.status === 'answered' ? 'up' : '') + '">' + escapeHtml(item.status) + '</span></div>' + thread +
+          '<form class="stack help-response-form" data-help-id="' + escapeHtml(item.id) + '"><div class="field"><label>Add response</label><textarea maxlength="2000" rows="5" required></textarea></div><div class="actions"><button type="submit">Send response</button>' +
+          (item.status === 'closed' ? '<button class="button-secondary" type="button" data-help-status="open" data-help-id="' + escapeHtml(item.id) + '">Reopen</button>' : '<button class="button-secondary" type="button" data-help-status="closed" data-help-id="' + escapeHtml(item.id) + '">Close</button>') + '</div></form></article>';
+        }).join('');
         setPanelStatus('help-status', 'Loaded ' + requests.length + ' request(s).', 'success');
       } catch (error) { container.innerHTML = '<p class="status error">' + escapeHtml(error.message) + '</p>'; setPanelStatus('help-status', error.message, 'error'); }
     }

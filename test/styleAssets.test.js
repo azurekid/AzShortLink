@@ -29,6 +29,17 @@ test('stylesheets reference the local background image', () => {
   assert.ok(statSync(join(assets, 'images', 'background.jpg')).size > 0);
 });
 
+test('signup shows a pending state while sending the verification email', () => {
+  const signup = renderSignupPage({ invite: 'invite-code' });
+  const script = signup.match(/<script>([\s\S]*?)<\/script>/)[1];
+
+  assert.match(signup, /id="signup-form"/);
+  assert.match(signup, /id="signup-status"/);
+  assert.match(signup, /Sending verification email/);
+  assert.match(signup, /button\.disabled = true/);
+  assert.doesNotThrow(() => new Function(script));
+});
+
 test('first-party page sources do not embed static style blocks', () => {
   const pages = join(__dirname, '..', 'src', 'pages');
   const dashboard = join(__dirname, '..', 'src', 'dashboard');
