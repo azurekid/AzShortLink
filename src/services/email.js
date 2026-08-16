@@ -29,21 +29,74 @@ function buildVerificationEmailContent({ username, verificationUrl }) {
 
   const html = `<!doctype html>
 <html lang="en">
-<body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#17212b">
-  <div style="max-width:600px;margin:0 auto;padding:32px 16px">
-    <div style="background:#0078d4;color:#fff;padding:24px 28px">
-      <strong style="font-size:22px">AzShortLink</strong>
-      <div style="margin-top:6px;font-size:14px">Account verification</div>
-    </div>
-    <div style="background:#fff;padding:28px;border:1px solid #d8e0e7;border-top:0">
-      <h1 style="margin:0 0 18px;font-size:22px">Hi ${safeUsername},</h1>
-      <p>Welcome to AzShortLink. Verify your email address within 24 hours before signing in.</p>
-      <p style="margin:24px 0"><a href="${safeVerificationUrl}" style="display:inline-block;background:#0078d4;color:#fff;text-decoration:none;padding:12px 18px;font-weight:bold">Verify email address</a></p>
-      <p>After verification, we recommend adding a passkey from your profile for secure, passwordless sign-in.</p>
-      <p>New invites can be created once your account is at least 7 days old and you have created at least 3 legitimate links.</p>
-      <p style="margin-bottom:0">For any questions, use the Help tab in the dashboard.</p>
-    </div>
-  </div>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Verify your AzShortLink account</title>
+</head>
+<body style="margin:0;padding:0;background-color:#eef2f5;color:#17212b;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">Verify your email address to finish setting up your AzShortLink account.</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background-color:#eef2f5">
+    <tr>
+      <td align="center" style="padding:32px 12px">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #d7e0e7;border-collapse:separate">
+          <tr>
+            <td style="padding:24px 32px;background-color:#17212b;border-bottom:4px solid #00a4ef;color:#ffffff">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td style="font-size:23px;line-height:28px;font-weight:700">AzShortLink</td>
+                  <td align="right" style="font-size:12px;line-height:18px;color:#b9c8d4;text-transform:uppercase">Account verification</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:36px 32px 20px">
+              <h1 style="margin:0 0 16px;color:#17212b;font-size:24px;line-height:32px;font-weight:700">Hi ${safeUsername},</h1>
+              <p style="margin:0;color:#405261;font-size:16px;line-height:25px">Welcome to AzShortLink. Verify your email address within 24 hours to activate your account and sign in.</p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:8px 32px 28px">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td align="center" bgcolor="#0078d4" style="background-color:#0078d4">
+                    <a href="${safeVerificationUrl}" style="display:inline-block;padding:14px 24px;color:#ffffff;font-size:16px;line-height:20px;font-weight:700;text-decoration:none">Verify email address</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 28px">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background-color:#f4f8fb;border-left:4px solid #00a4ef">
+                <tr>
+                  <td style="padding:18px 20px">
+                    <p style="margin:0 0 8px;color:#17212b;font-size:14px;line-height:21px;font-weight:700">After verification</p>
+                    <p style="margin:0 0 10px;color:#405261;font-size:14px;line-height:21px">Add a passkey from your profile for secure, passwordless sign-in.</p>
+                    <p style="margin:0;color:#405261;font-size:14px;line-height:21px">You can create a new invite once your account is at least 7 days old and you have created at least 3 legitimate links.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px">
+              <p style="margin:0 0 10px;color:#405261;font-size:14px;line-height:21px">If the button does not work, open this link:</p>
+              <p style="margin:0;word-break:break-all;font-size:12px;line-height:19px"><a href="${safeVerificationUrl}" style="color:#0067b8;text-decoration:underline">${safeVerificationUrl}</a></p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 32px;background-color:#f8fafb;border-top:1px solid #d7e0e7;color:#627482;font-size:12px;line-height:19px">
+              For questions or support, use the Help tab in your dashboard.<br>
+              This verification link expires after 24 hours.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>`;
 

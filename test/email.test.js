@@ -19,6 +19,10 @@ test('builds a personalized verification email with onboarding guidance', () => 
   assert.match(content.plainText, /Help tab/);
   assert.match(content.html, /Hi User &lt;admin&gt;,/);
   assert.match(content.html, /token=a&amp;b=c/);
+  assert.match(content.html, /role="presentation"/);
+  assert.match(content.html, /Verify your email address to finish setting up/);
+  assert.match(content.html, /If the button does not work/);
+  assert.match(content.html, /background-color:#17212b/);
   assert.doesNotMatch(content.html, /Hi User <admin>,/);
 });
 
