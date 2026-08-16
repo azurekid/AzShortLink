@@ -20,6 +20,8 @@ test('splits admin management into focused profile, invite, and operations tabs'
   assert.match(html, /<th>Owner<\/th>/);
   assert.match(html, /id="download-qr"/);
   assert.match(html, /azshortlink-' \+ code \+ '-qr\.png/);
+  assert.match(html, /href="\/api"/);
+  assert.match(html, /Open API reference/);
 });
 
 test('shows an invite links panel to admins listing every invite, not just their own', () => {

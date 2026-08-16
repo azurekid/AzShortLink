@@ -1,12 +1,14 @@
 'use strict';
 
-function buildOpenApiSpec(baseUrl) {
-  return {
+const ADMIN_ONLY = Symbol('adminOnly');
+
+function buildOpenApiSpec(baseUrl, options = {}) {
+  const spec = {
     openapi: '3.0.3',
     info: {
       title: 'AzShortLink API',
       version: '1.0.0',
-      description: 'Create, manage, and analyze short links. Open `/docs` for an interactive reference.'
+      description: 'Create, manage, and analyze short links. Open `/api` for an interactive reference.'
     },
     servers: [{ url: baseUrl, description: 'Current deployment' }],
     tags: [
@@ -184,6 +186,18 @@ function buildOpenApiSpec(baseUrl) {
       }
     }
   };
+
+  if (!options.includeAdmin) {
+    for (const [path, pathItem] of Object.entries(spec.paths)) {
+      for (const [method, pathOperation] of Object.entries(pathItem)) {
+        if (pathOperation[ADMIN_ONLY]) delete pathItem[method];
+      }
+      if (Object.keys(pathItem).length === 0) delete spec.paths[path];
+    }
+    spec.tags = spec.tags.filter((tag) => tag.name !== 'Administration');
+  }
+
+  return spec;
 }
 
 function operation(summary, tag, options = {}) {
@@ -195,7 +209,11 @@ function sessionOperation(summary, tag, options = {}) {
 }
 
 function adminOperation(summary, tag, options = {}) {
-  return { ...operation(summary, tag, options), description: `${options.description ? `${options.description} ` : ''}Requires an administrator identity.` };
+  return {
+    ...operation(summary, tag, options),
+    description: `${options.description ? `${options.description} ` : ''}Requires an administrator identity.`,
+    [ADMIN_ONLY]: true
+  };
 }
 
 function jsonBody(schemaName) {

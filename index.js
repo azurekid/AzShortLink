@@ -207,20 +207,24 @@ registerHttp('openApiDocument', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'openapi.json',
-  handler: async () => ({
-    status: 200,
-    headers: {
-      'content-type': 'application/vnd.oai.openapi+json;version=3.0; charset=utf-8',
-      'cache-control': 'public, max-age=300'
-    },
-    jsonBody: buildOpenApiSpec(config.baseUrl)
-  })
+  handler: async (request) => {
+    const identity = await resolveSessionIdentity(request);
+    return {
+      status: 200,
+      headers: {
+        'content-type': 'application/vnd.oai.openapi+json;version=3.0; charset=utf-8',
+        'cache-control': 'private, no-store',
+        vary: 'Cookie'
+      },
+      jsonBody: buildOpenApiSpec(config.baseUrl, { includeAdmin: identity?.role === 'admin' })
+    };
+  }
 });
 
 registerHttp('apiDocs', {
   methods: ['GET'],
   authLevel: 'anonymous',
-  route: 'docs',
+  route: 'api',
   handler: async () => ({
     status: 200,
     headers: {

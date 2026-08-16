@@ -91,7 +91,7 @@ Users can download it immediately after creation or later from the link list. No
 
 ## Documentation as an Interface
 
-The OpenAPI document is served at `/openapi.json`. Swagger UI at `/docs` uses the same visual language as the dashboard and targets the current deployment.
+The OpenAPI document is served at `/openapi.json`. Swagger UI at `/api` uses the same visual language as the dashboard and targets the current deployment.
 
 Developers can authorize with personal or deployment keys, while same-origin session-only operations use the dashboard cookie. The documentation is executable: schemas, status codes, security, and request bodies can be explored directly.
 

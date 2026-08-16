@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOpenApiSpec } = require('../src/openApi');
 
-test('builds an OpenAPI document for every public API route', () => {
+test('builds a user OpenAPI document without administrator operations by default', () => {
   const spec = buildOpenApiSpec('https://short.example');
 
   assert.equal(spec.openapi, '3.0.3');
@@ -13,11 +13,27 @@ test('builds an OpenAPI document for every public API route', () => {
   assert.ok(spec.paths['/api/stats/{code}'].get);
   assert.equal(spec.paths['/api/links/{code}/qr'].get.responses[200].content['image/png'].schema.format, 'binary');
   assert.ok(spec.paths['/api/profile/apikey'].post);
-  assert.ok(spec.paths['/api/users/{username}/password'].post);
-  assert.ok(spec.paths['/api/invites/{code}'].delete);
-  assert.ok(spec.paths['/api/audit'].get);
+  assert.equal(spec.paths['/api/users'], undefined);
+  assert.equal(spec.paths['/api/users/{username}/password'], undefined);
+  assert.equal(spec.paths['/api/invites'].get, undefined);
+  assert.ok(spec.paths['/api/invites'].post);
+  assert.equal(spec.paths['/api/invites/{code}'], undefined);
+  assert.equal(spec.paths['/api/audit'], undefined);
   assert.ok(spec.paths['/api/health'].get);
+  assert.equal(spec.tags.some((tag) => tag.name === 'Administration'), false);
   assert.deepEqual(spec.paths['/api/shorten'].post.security, [{ ApiKeyHeader: [] }, { BearerAuth: [] }, { DashboardSession: [] }]);
   assert.equal(spec.paths['/api/health'].get.security, undefined);
   assert.ok(spec.components.securitySchemes.ApiKeyHeader);
+});
+
+test('includes administrator operations for an admin document', () => {
+  const spec = buildOpenApiSpec('https://short.example', { includeAdmin: true });
+
+  assert.ok(spec.paths['/api/users'].get);
+  assert.ok(spec.paths['/api/users/{username}/password'].post);
+  assert.ok(spec.paths['/api/invites'].get);
+  assert.ok(spec.paths['/api/invites'].post);
+  assert.ok(spec.paths['/api/invites/{code}'].delete);
+  assert.ok(spec.paths['/api/audit'].get);
+  assert.equal(spec.tags.some((tag) => tag.name === 'Administration'), true);
 });

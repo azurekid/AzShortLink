@@ -9,7 +9,7 @@ AzShortLink is a self-hosted URL shortener built on Azure Functions. It combines
 | [Deployment guide](docs/DEPLOY.md) | Provision Azure resources, configure email and domains, deploy, rotate secrets, and troubleshoot |
 | [Architecture](docs/ARCHITECTURE.md) | Runtime flows, storage model, authentication, invitation trust chain, and security boundaries |
 | [Solution blog](docs/BLOG.md) | Long-form story covering design decisions, tradeoffs, and lessons |
-| [`/docs`](https://azhk.in/docs) | Interactive, branded Swagger UI |
+| [`/api`](https://azhk.in/api) | Interactive, branded Swagger UI |
 | [`/openapi.json`](https://azhk.in/openapi.json) | OpenAPI 3.0 document |
 
 ## Capabilities
@@ -79,7 +79,7 @@ Protected operations reload the profile's current role and status. Demotion, sus
 
 ## API Access
 
-Open `https://<your-host>/docs`, select **Authorize**, and provide either:
+Open `https://<your-host>/api`, select **Authorize**, and provide either:
 
 - `ApiKeyHeader`: a personal or deployment-wide key; or
 - `BearerAuth`: the same key as a bearer token.
@@ -123,7 +123,7 @@ func start
 ```
 
 - Dashboard: `http://localhost:7071/dashboard`
-- Swagger: `http://localhost:7071/docs`
+- Swagger: `http://localhost:7071/api`
 - Health: `http://localhost:7071/api/health`
 
 The application layer can use in-memory storage for tests, but the Functions host still requires a valid `AzureWebJobsStorage` setting.

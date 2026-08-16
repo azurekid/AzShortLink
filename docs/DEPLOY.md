@@ -177,7 +177,7 @@ The workflow deploys code only. Run Bicep separately for infrastructure or setti
 ```bash
 curl -i "$BASE_URL/api/health"
 curl -i "$BASE_URL/openapi.json"
-curl -I "$BASE_URL/docs"
+curl -I "$BASE_URL/api"
 
 curl -X POST "$BASE_URL/api/shorten" \
   -H "x-api-key: $API_KEY" \

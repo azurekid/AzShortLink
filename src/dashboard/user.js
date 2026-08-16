@@ -60,6 +60,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           <p class="mono">GET /api/analytics</p>
           <p class="mono">DELETE /api/links/{code}</p>
           <p>An API key is required to call these endpoints. Create one from the Account tab.</p>
+          <a class="button-link button-secondary" href="/api"><i class="fas fa-book-open"></i>Open API reference</a>
         </section>
         <section class="card span-full">
           <div class="card-header"><h2>Your links</h2><button id="load-stats" class="button-secondary button-compact" type="button">Refresh</button></div>

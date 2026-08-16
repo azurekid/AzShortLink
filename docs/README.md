@@ -9,5 +9,5 @@
 
 Runtime API documentation:
 
-- Interactive Swagger UI: `/docs`
+- Interactive Swagger UI: `/api`
 - OpenAPI document: `/openapi.json`
