@@ -1,215 +1,194 @@
 # AzShortLink
 
-A low-cost Azure Functions URL shortener with authenticated link creation, redirects, redirect statistics, a multi-profile browser dashboard, and deploy-ready Azure infrastructure
+AzShortLink is a self-hosted URL shortener built on Azure Functions. It combines public redirects with authenticated link management, QR downloads, visual analytics, local multi-user identity, invitation controls, audit logging, and infrastructure as code.
 
-## Features
+## Documentation
 
-- `POST /api/shorten` (authenticated) to create short URLs
-- Random or custom alias support (`uniqueValue`, `alias`, or `code` in payload)
-- `GET /{code}` redirect to original URL
-- Azure Table Storage backend with explicit table provisioning in Bicep
-- Link data, user profiles/credentials, and the audit trail are stored in **separate Azure Tables** (not just separate partitions) to limit the blast radius of a filter bug, an overly-broad SAS token, or a scoped RBAC role assignment
-- `GET /api/stats/{code?}` (authenticated) for stats JSON
-- `GET /dashboard` authenticated UI for creating and inspecting profile-owned short links
-- Tabbed dashboard: Links, Statistics, Account, and an admin-only Admin tab
-- `DELETE /api/links/{code}` to remove links you own (admins may remove any link)
-- `GET /api/links/{code}/qr` downloads a PNG QR code for a link you own (admins may access any link)
-- `GET /api/analytics` for aggregated redirect statistics
-- `POST /api/profile/password` so users can rotate their own password
-- `POST /api/profile/apikey` issues a personal API key scoped to the signed-in profile
-- `GET /api/users` (admin) lists every profile with its link count
-- `DELETE /api/users/{username}` (admin) removes a profile (not your own, not the primary admin)
-- `POST /api/users/{username}/password` (admin) resets another profile's password without knowing the current one
-- `GET /api/audit` (admin) queries the 30-day security audit trail for your SIEM
-- `GET /custom.css` serves `src/custom.css` so you can override the theme without touching app code
-- Admin-created user profiles with bcrypt password hashes and signed sessions
-- Local multi-admin RBAC with optional passkeys, email verification, invite ancestry, and branch moderation
-- Case-sensitive usernames
-- `GET /api/health` for table/queue/config diagnostics
-- Configurable Azure Function App CORS origins for deployed and local browser clients
+| Document | Purpose |
+|---|---|
+| [Deployment guide](docs/DEPLOY.md) | Provision Azure resources, configure email and domains, deploy, rotate secrets, and troubleshoot |
+| [Architecture](docs/ARCHITECTURE.md) | Runtime flows, storage model, authentication, invitation trust chain, and security boundaries |
+| [Solution blog](docs/BLOG.md) | Long-form story covering design decisions, tradeoffs, and lessons |
+| [`/docs`](https://azhk.in/docs) | Interactive, branded Swagger UI |
+| [`/openapi.json`](https://azhk.in/openapi.json) | OpenAPI 3.0 document |
 
-## Configuration
+## Capabilities
 
-Set these app settings in Azure Function App:
+### Link management
 
-The included Bicep deployment stores sensitive settings in Azure Key Vault and configures versionless App Service Key Vault references using the Function App's system-assigned managed identity. Local development still reads the same names directly from `local.settings.json`.
+- Create random or custom short links.
+- Redirect visitors while recording aggregate usage statistics.
+- List and delete links within profile ownership boundaries.
+- Download a 512 px PNG QR code at creation time or later from the link list.
+- Keep aliases globally unique within one deployment.
 
-- `SHORTLINK_API_KEY` (required, used via `x-api-key` header or Authorization token header)
-- `PUBLIC_BASE_URL` (default: `https://azhk.in`)
-- `AZURE_STORAGE_CONNECTION_STRING` (or `AzureWebJobsStorage`)
-- `SHORTLINK_TABLE_NAME` (default: `AzShortLinks`) — short link data
-- `SHORTLINK_USERS_TABLE_NAME` (default: `<SHORTLINK_TABLE_NAME>Users`) — user profiles, credentials and API keys
-- `SHORTLINK_AUDIT_TABLE_NAME` (default: `<SHORTLINK_TABLE_NAME>Audit`) — security audit trail
-- `DASHBOARD_USERNAME` (required for the initial admin profile)
-- `DASHBOARD_PASSWORD_HASH` (required; generate with `node scripts/generate-dashboard-hash.js '<password>'`)
-- `DASHBOARD_SESSION_SECRET` (optional; derived from the API key and password hash when omitted)
-- `IDENTITY_HASH_SECRET` (required for production; random HMAC key for email, IP, and device-signal hashes)
-- `COMMUNICATION_SERVICES_CONNECTION_STRING` (Azure Communication Services Email connection string)
-- `EMAIL_SENDER_ADDRESS` (verified Azure Communication Services sender)
-- `API_RATE_LIMIT_MAX_REQUESTS` (optional; API requests per client IP per window, default `60`)
-- `API_RATE_LIMIT_WINDOW_MS` (optional; rate-limit window in milliseconds, default `60000`)
+### Identity and access
 
-All `/api/*` endpoints return HTTP `429` with a `Retry-After` header when a client exceeds the limit. The limiter is process-local and keys requests by the first `x-forwarded-for` address, so use an Azure WAF or API gateway for a deployment-wide quota across multiple Function workers.
+- Local `user` and `admin` roles without an external identity-provider dependency.
+- bcrypt passwords and signed, HTTP-only session cookies.
+- Optional WebAuthn passkeys with locally stored public-key credentials.
+- Personal API keys stored as SHA-256 hashes and shown only once.
+- Multiple administrators with protection against demoting the final administrator.
 
-The app does not use Azure Storage Queues today, so only the table resource is provisioned. `/api/health` reports queue status as `not-required`.
+### Controlled invitations
 
-You can use `local.settings.sample.json` as a template for local settings.
+- Single-use invites with direct sponsor, root sponsor, and depth tracking.
+- Email verification through Azure Communication Services Email.
+- Duplicate prevention using a keyed hash of the normalized email address.
+- Keyed IP and coarse device signals for review, never as identity proof.
+- Pending approval for suspicious signups and recursive branch suspension.
+- Default non-admin eligibility: account age 7 days, 3 owned links, depth 3, and 100 descendants per root.
 
-## API
+### Operations
 
-The complete OpenAPI 3.0 document is available at [`/openapi.json`](/openapi.json). Open [`/docs`](/docs) for the interactive Swagger UI, where developers can enter an `x-api-key` or bearer token and send requests to the current deployment.
+- Dashboard views for Links, Statistics, Account, Profiles, Invites, Operations, and Audit trail.
+- Visual statistics for utilization, links, browsers, operating systems, devices, referrers, and owners.
+- Thirty-day security audit log with filters and CSV export.
+- Health endpoint and configurable process-local API throttling.
+- Styled Swagger UI and a complete OpenAPI 3.0 specification.
 
-### Create short URL
+## Architecture
 
-`POST /api/shorten`
-
-Headers:
-
-- `x-api-key: <SHORTLINK_API_KEY>` **or** `Authorization` token header
-
-Body:
-
-```json
-{
-  "url": "https://learn.microsoft.com/azure/azure-functions/",
-  "uniqueValue": "myDocLink"
-}
+```mermaid
+flowchart LR
+    Client[Browser or API client] --> Functions[Azure Functions]
+    Visitor[Redirect visitor] --> Functions
+    Functions --> Links[(Links table)]
+    Functions --> Users[(Users table)]
+    Functions --> Audit[(Audit table)]
+    Functions --> ACS[ACS Email]
+    Vault[Azure Key Vault] --> Functions
+    Functions --> Insights[Application Insights]
 ```
 
-`uniqueValue` is optional. If omitted, a unique random code is generated.
+The data classes use separate Azure Tables. The Function App has a system-assigned managed identity and resolves secrets through versionless Key Vault references. See [Architecture](docs/ARCHITECTURE.md) for detailed flows.
 
-### Redirect
+## Access Model
 
-`GET /{code}` returns HTTP `302` to the original URL.
+| Capability | User | Administrator |
+|---|---:|---:|
+| Manage owned links and QR codes | Yes | Yes |
+| View owned analytics | Yes | Yes |
+| View all links and owner analytics | No | Yes |
+| Create an invite | Policy-controlled, one total | Yes |
+| Manage profiles, roles, approval, and branches | No | Yes |
+| Manage all invitations | No | Yes |
+| Query the audit trail | No | Yes |
 
-### Stats and dashboard
+Protected operations reload the profile's current role and status. Demotion, suspension, or branch suspension therefore takes effect without waiting for an old session to expire.
 
-- `GET /api/stats/{code?}` returns JSON statistics
-- `GET /dashboard` returns an authenticated dashboard. Sign in with the configured admin profile; browser requests use the secure session cookie and do not require the API key.
-- Admins can create additional profiles from the dashboard. New profiles can create links and see only their own links and statistics.
-- Short aliases remain globally unique across all profiles.
+## API Access
 
-### Dashboard tabs
+Open `https://<your-host>/docs`, select **Authorize**, and provide either:
 
-| Tab | Available to | Contents |
-|---|---|---|
-| Links | everyone | Create links, list links, delete links |
-| Statistics | everyone | Icon stat cards plus bar charts for top links, browsers, operating systems, device types and referrers |
-| Account | everyone | Current profile, self-service password change, personal API key |
-| Admin | admins | All profiles with link counts, add user, service health, redirects by profile |
-| Audit trail | admins | Filterable 30-day security audit log (login attempts, link/user/password/API-key events) with CSV export |
+- `ApiKeyHeader`: a personal or deployment-wide key; or
+- `BearerAuth`: the same key as a bearer token.
 
-Admins see every profile's links (with an owner column) and can delete any link. Regular users only ever see and delete their own links. Changing a password signs the user out so they re-authenticate.
-
-### Custom styling
-
-Edit `src/custom.css` and redeploy. It is served at `/custom.css` and loaded after the built-in theme on both the login and dashboard pages, so any CSS variable or selector can be overridden. For example:
-
-```css
-:root { --accent: #ff7a18; }
-```
-
-### Personal API keys
-
-Each profile can issue its own API key from **Account → Personal API key**. Keys look like `azsl_<random>`, are shown exactly once, and only a SHA-256 hash is stored. A key inherits its owner's permissions, so links created with it belong to that profile and a non-admin key can only read or delete that profile's links. Generating a new key immediately invalidates the previous one.
+A user key is profile-scoped. An administrator key can use management endpoints. Session-only profile and passkey operations use the dashboard cookie when Swagger runs on the same origin.
 
 ```bash
 curl -X POST "https://azhk.in/api/shorten" \
-  -H "x-api-key: azsl_<your-key>" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com"}'
+  -H "x-api-key: azsl_<personal-key>" \
+  -H "content-type: application/json" \
+  -d '{"url":"https://learn.microsoft.com/azure/azure-functions/","uniqueValue":"azure-functions"}'
 ```
 
-The deployment-wide `SHORTLINK_API_KEY` still works and maps to the admin profile.
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/api/shorten` | Create a short link |
+| `GET` | `/{code}` | Public redirect |
+| `GET` | `/api/stats/{code?}` | Link statistics |
+| `DELETE` | `/api/links/{code}` | Delete a link |
+| `GET` | `/api/links/{code}/qr` | Download its QR code |
+| `GET` | `/api/analytics` | Aggregate analytics |
+| `GET` | `/api/health` | Runtime health |
+| `GET` | `/api/audit` | Administrator audit query |
 
-### Identity and invitation controls
+Use OpenAPI for the complete endpoint and schema reference.
 
-Invite signups must verify an email address through Azure Communication Services Email. The plaintext address is used only for delivery; storage keeps a normalized keyed hash for duplicate prevention and a masked value for administration. Rotate `IDENTITY_HASH_SECRET` only with a migration plan because existing duplicate checks depend on it.
+## Local Development
 
-Every invited profile records its direct sponsor, root sponsor, and invite depth. Non-admin profiles may create one invite only after the account is 7 days old, owns at least 3 links, has verified email, remains below depth 3, and its root branch remains below 100 descendants. Administrators are trusted roots and bypass the age/activity requirements.
-
-Shared signup IP and coarse device signals are stored as keyed hashes and flagged for review; they are not treated as proof of identity. A flagged profile becomes `pending_approval` after email verification. Administrators can approve or suspend profiles, promote additional administrators, and suspend or restore an entire descendant branch from the Admin tab. The final administrator cannot demote itself.
-
-Passkeys are optional for every active profile and are stored locally as WebAuthn public-key credentials. Password sign-in remains available for recovery. Production passkeys require an HTTPS `PUBLIC_BASE_URL` whose hostname matches the page serving the dashboard.
-
-### Redirect telemetry
-
-Each redirect updates per-link counters for browser, operating system, device type, and referrer host, derived from the request's `User-Agent` and `Referer` headers. No IP addresses or personal data are stored, and no extra storage write is added — the counters piggyback on the existing redirect-count update. The Statistics tab renders these as bar charts alongside totals and top links.
-
-API clients may still authenticate with `SHORTLINK_API_KEY`; that key acts as the admin identity. Dashboard users authenticate with their profile credentials.
-
-### Audit trail
-
-Every security-relevant action is recorded to Azure Table Storage (a dedicated audit table, separate from links and user profiles) and retained for 30 days:
-
-| Action | Recorded on |
-|---|---|
-| `LOGIN_SUCCESS` / `LOGIN_FAILED` | Every dashboard sign-in attempt, success or failure |
-| `LINK_CREATED` | Who created a link, its code, and the target URL |
-| `LINK_DELETED` | Who deleted a link, and whether it was an admin acting on someone else's link |
-| `USER_CREATED` | Admin-created profiles |
-| `USER_DELETED` | Admin-deleted profiles |
-| `PASSWORD_CHANGED` | Self-service password rotation |
-| `PASSWORD_RESET_BY_ADMIN` | Admin-forced password reset for another profile |
-| `API_KEY_ROTATED` | Personal API key generation |
-
-Query it as an admin:
+Requirements: Node.js 22+, Azure Functions Core Tools v4, and Azurite or an accessible Azure Storage account.
 
 ```bash
-curl "https://azhk.in/api/audit?limit=500" -H "x-api-key: <admin-api-key>"
+npm ci
+cp local.settings.sample.json local.settings.json
+node scripts/generate-dashboard-hash.js '<local-password>'
 ```
 
-Optional query params: `since` (ISO 8601 timestamp), `action` (filter to one action type), `actor` (filter to one username), `limit` (default 200, max 1000). The response includes `retentionDays: 30` so a SIEM pull job can confirm the window it's operating under. Entries older than 30 days are purged opportunistically in small batches on each new write, so no scheduled job is required, but very low-traffic deployments may retain slightly-expired entries a little longer than 30 days until the next write occurs — the query itself always filters them out regardless.
-
-**Never logged:** passwords, password hashes, session tokens, or full API keys. Only the acting user, action, timestamp, source IP, and non-secret details (e.g., link code/target URL) are recorded.
-
-## Multiple profiles and domains
-
-### Multiple profiles in one deployment
-
-The current deployment supports multiple user profiles in one Function App:
-
-1. Deploy the initial admin credentials as described in [docs/DEPLOY.md](docs/DEPLOY.md).
-2. Open `/dashboard` and sign in as the admin.
-3. Open the **Admin** tab and use **Add user** to create a username, display name, and password of at least 12 characters.
-4. Give the new user the dashboard URL. They sign in with their own credentials and can change their password from the **Account** tab.
-
-Usernames are **case-sensitive**: `Alice` and `alice` are different profiles.
-
-Each link stores its profile owner in Azure Table Storage. Redirects remain public, but dashboard statistics are filtered to the signed-in profile. There is currently one admin role; users cannot create other users or view another profile's links.
-
-### Multiple domains
-
-Per-customer domains are **not supported in one deployment yet**. `PUBLIC_BASE_URL` and the generated short-link hostname are global settings, and the Bicep template provisions one configured domain plus its `www` hostname.
-
-To host separate domains safely today, deploy this solution once per domain with a separate Function App, storage table/account, `baseUrl`, and `customDomain` value. This gives each domain an independent tenant boundary. Do not attach several customer domains to one app while expecting profile-specific URL generation; links and branding are not domain-scoped yet.
-
-Native multi-domain support requires a future tenant/domain model, host-header routing, per-domain certificate provisioning, and domain-scoped link generation.
-
-### Health
-
-`GET /api/health` returns storage, queue, and configuration health. It returns HTTP `503` until required app settings and Azure Table Storage are ready.
-
-## Deploy to Azure
-
-Provision infrastructure and deploy with a single Bicep template + GitHub Actions pipeline.
-See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the full step-by-step guide.
-
-Quick start:
+Add `DASHBOARD_USERNAME`, the generated `DASHBOARD_PASSWORD_HASH`, `DASHBOARD_SESSION_SECRET`, and `IDENTITY_HASH_SECRET` to `local.settings.json`. Configure ACS settings when testing invite email.
 
 ```bash
-az group create --name rg-azshortlink --location westeurope
-az deployment group create \
-  --resource-group rg-azshortlink \
-  --template-file infra/main.bicep \
-  --parameters infra/main.bicepparam \
-  --parameters apiKey="$(openssl rand -hex 32)" \
-               corsAllowedOrigins='["https://azhk.in"]' \
-               localDevCorsAllowedOrigins='["http://localhost:3000","http://localhost:5173"]'
+func start
 ```
 
-## Run tests
+- Dashboard: `http://localhost:7071/dashboard`
+- Swagger: `http://localhost:7071/docs`
+- Health: `http://localhost:7071/api/health`
+
+The application layer can use in-memory storage for tests, but the Functions host still requires a valid `AzureWebJobsStorage` setting.
+
+## Configuration
+
+| Setting | Production | Sensitive | Purpose |
+|---|---:|---:|---|
+| `SHORTLINK_API_KEY` | Required | Yes | Deployment administrator API key |
+| `PUBLIC_BASE_URL` | Required | No | Canonical links and WebAuthn origin |
+| `AzureWebJobsStorage` / `AZURE_STORAGE_CONNECTION_STRING` | Required | Yes | Functions host and tables |
+| `SHORTLINK_TABLE_NAME` | Optional | No | Links table |
+| `SHORTLINK_USERS_TABLE_NAME` | Optional | No | Profiles and credentials table |
+| `SHORTLINK_AUDIT_TABLE_NAME` | Optional | No | Audit table |
+| `DASHBOARD_USERNAME` | Required | No | Bootstrap administrator |
+| `DASHBOARD_PASSWORD_HASH` | Required | Yes | Bootstrap bcrypt hash |
+| `DASHBOARD_SESSION_SECRET` | Recommended | Yes | Session and challenge signing |
+| `IDENTITY_HASH_SECRET` | Required | Yes | Keyed identity and risk hashes |
+| `COMMUNICATION_SERVICES_CONNECTION_STRING` | For invite signup | Yes | Verification delivery |
+| `EMAIL_SENDER_ADDRESS` | For invite signup | No | Verified ACS sender |
+| `API_RATE_LIMIT_MAX_REQUESTS` | Optional | No | Requests per process window, default `60` |
+| `API_RATE_LIMIT_WINDOW_MS` | Optional | No | Window length, default `60000` |
+
+Bicep writes sensitive values to Key Vault and configures versionless App Service references. Local development reads the same setting names directly.
+
+## Repository Layout
+
+```text
+index.js                    HTTP route registration
+src/auth.js                 sessions, credentials, and API keys
+src/identity.js             identity hashing and verification tokens
+src/passkeys.js             WebAuthn server operations
+src/invitePolicy.js         invite eligibility and ancestry
+src/service/                short-link domain logic
+src/storage/                storage adapters
+src/dashboard/              dashboard UI
+src/openApi.js              OpenAPI builder
+src/apiDocsPage.js          branded Swagger UI
+infra/                      Bicep infrastructure
+test/                       Node test suite
+docs/                       project documentation
+```
+
+## Testing
 
 ```bash
 npm test
 ```
+
+The Node test suite covers domain behavior, storage, authentication, rate limiting, dashboards, identity controls, passkeys, OpenAPI, QR generation, and audit retention.
+
+## Deployment
+
+Bicep provisions the Function App, Basic B1 plan, Storage Account and tables, Application Insights, Key Vault, managed identity access, and optional custom-domain certificates. ACS Email must already exist with a verified sender.
+
+Follow the [deployment guide](docs/DEPLOY.md). GitHub Actions tests on Node 22 and deploys application code using Azure OIDC.
+
+## Current Boundaries
+
+- One deployment has one canonical `PUBLIC_BASE_URL`; native multi-domain tenancy is not implemented.
+- Rate limiting is process-local. Use Front Door, API Management, or a WAF for deployment-wide quotas.
+- Risk signals support review but do not prove one account per human.
+- Email verification proves mailbox control, not legal identity.
+- Audit retention is 30 days and cleanup is opportunistic on writes.
+
+## License
+
+See [LICENSE](LICENSE).
