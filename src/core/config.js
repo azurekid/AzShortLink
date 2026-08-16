@@ -13,6 +13,7 @@ function getConfig() {
     usersTableName: process.env.SHORTLINK_USERS_TABLE_NAME || `${tableName}Users`,
     auditTableName: process.env.SHORTLINK_AUDIT_TABLE_NAME || `${tableName}Audit`,
     storageConnectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || process.env.AzureWebJobsStorage || '',
+    storageQueueEndpoint: process.env.AZURE_STORAGE_QUEUE_ENDPOINT || '',
     storageTableEndpoint: process.env.AZURE_STORAGE_TABLE_ENDPOINT || '',
     baseUrl: (process.env.PUBLIC_BASE_URL || 'https://azhk.in').replace(/\/$/, ''),
     apiKey,

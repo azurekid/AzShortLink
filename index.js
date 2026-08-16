@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, output } = require('@azure/functions');
+const { app } = require('@azure/functions');
 const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
 const path = require('node:path');
@@ -44,6 +44,7 @@ const {
   buildRiskSignals
 } = require('./src/auth/identity');
 const { sendPasswordResetEmail, sendVerificationEmail } = require('./src/services/email');
+const { createPasswordResetQueue } = require('./src/services/passwordResetQueue');
 const {
   signChallengeState,
   verifyChallengeState,
@@ -54,7 +55,7 @@ const {
 } = require('./src/auth/passkeys');
 
 const config = getConfig();
-const passwordResetQueueOutput = output.storageQueue({ queueName: 'password-resets', connection: 'AzureWebJobsStorage' });
+const passwordResetQueue = createPasswordResetQueue(config);
 const apiRateLimitMaxRequests = Number.parseInt(process.env.API_RATE_LIMIT_MAX_REQUESTS || '60', 10);
 const apiRateLimitWindowMs = Number.parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10);
 
@@ -808,8 +809,7 @@ registerHttp('forgotPasswordSubmit', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'dashboard/forgot-password',
-  extraOutputs: [passwordResetQueueOutput],
-  handler: async (request, context) => {
+  handler: async (request) => {
     const genericMessage = 'If the username and email address match an active account, a password reset link has been sent.';
     const ip = getClientIp(request);
     if (await passwordResetThrottle.isLockedOut(ip)) {
@@ -838,7 +838,12 @@ registerHttp('forgotPasswordSubmit', {
       // Return the same response as every other outcome to avoid account enumeration.
     }
 
-    context.extraOutputs.set(passwordResetQueueOutput, JSON.stringify({ username, email }));
+    try {
+      if (passwordResetQueue) await passwordResetQueue.enqueue({ username, email });
+      else console.error('[auth] Password reset queue is not configured.');
+    } catch (err) {
+      console.error('[auth] Unable to enqueue password reset request.', { code: err.code, statusCode: err.statusCode, message: err.message });
+    }
 
     return {
       status: 200,

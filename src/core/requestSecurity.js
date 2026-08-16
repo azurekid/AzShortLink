@@ -18,6 +18,10 @@ function getExternalRequestOrigin(request) {
 }
 
 function isAllowedRequestOrigin(request, configuredBaseUrl) {
+  const fetchSite = firstHeaderValue(request.headers.get('sec-fetch-site')).toLowerCase();
+  if (fetchSite === 'same-origin') return true;
+  if (fetchSite === 'cross-site') return false;
+
   const origin = request.headers.get('origin');
   if (!origin) return true;
 
