@@ -26,6 +26,7 @@ const {
   timingSafeEqualString
 } = require('./src/auth/auth');
 const { ACTIONS, AUDIT_RETENTION_DAYS, createAuditWriteLimiter, formatAuditEvent, recordAuditEvent } = require('./src/core/audit');
+const { isAllowedRequestOrigin } = require('./src/core/requestSecurity');
 const { buildOpenApiSpec } = require('./src/api/openApi');
 const { renderApiDocsPage } = require('./src/pages/apiDocsPage');
 const { createQrCodePng } = require('./src/services/qrCode');
@@ -81,13 +82,8 @@ function registerHttp(name, options) {
   const routedHandler = options.route.startsWith('api/') ? rateLimitedHandler(options.handler) : options.handler;
   const handler = async (request, context) => {
     const method = String(request.method || 'GET').toUpperCase();
-    const origin = request.headers.get('origin');
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && origin) {
-      const requestOrigin = new URL(request.url).origin;
-      const configuredOrigin = new URL(config.baseUrl).origin;
-      if (origin !== requestOrigin && origin !== configuredOrigin) {
-        return { status: 403, headers: { ...SECURITY_HEADERS }, jsonBody: { error: 'Cross-origin request denied.' } };
-      }
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !isAllowedRequestOrigin(request, config.baseUrl)) {
+      return { status: 403, headers: { ...SECURITY_HEADERS }, jsonBody: { error: 'Cross-origin request denied.' } };
     }
     const response = await routedHandler(request, context);
     return { ...response, headers: { ...SECURITY_HEADERS, ...(response.headers || {}) } };
