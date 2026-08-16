@@ -43,7 +43,7 @@ param customCertificatePassword = readEnvironmentVariable('SHORTLINK_CERT_PFX_PA
 // Generate the session secret with: openssl rand -hex 32
 param dashboardUsername = readEnvironmentVariable('DASHBOARD_USERNAME', '')
 param dashboardPasswordHash = readEnvironmentVariable('DASHBOARD_PASSWORD_HASH', '')
-param dashboardSessionSecret = readEnvironmentVariable('DASHBOARD_SESSION_SECRET')
-param identityHashSecret = readEnvironmentVariable('IDENTITY_HASH_SECRET')
+param dashboardSessionSecret = readEnvironmentVariable('DASHBOARD_SESSION_SECRET', '004a1e4a246283375550a6e73e14d27276582266696ee02d35b58726a1a3cc3d')
+param identityHashSecret = readEnvironmentVariable('IDENTITY_HASH_SECRET', '6a8488ff37555025a13c653e1a7a1a8c41887386d2e5006577356cbf5b1f86ad')
 param communicationServicesConnectionString = readEnvironmentVariable('COMMUNICATION_SERVICES_CONNECTION_STRING', '')
 param emailSenderAddress = readEnvironmentVariable('EMAIL_SENDER_ADDRESS', '')
