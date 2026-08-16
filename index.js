@@ -1246,6 +1246,14 @@ registerHttp('dashboardSignupSubmit', {
         return unavailableStorageResponse(err);
       }
       if (err.code === 'EMAIL_NOT_CONFIGURED' || err.code === 'EMAIL_DELIVERY_FAILED') {
+        const deliveryCause = err.cause;
+        console.error('[email] Account verification email is unavailable.', {
+          code: err.code,
+          causeName: deliveryCause?.name,
+          causeCode: deliveryCause?.code,
+          statusCode: deliveryCause?.statusCode,
+          causeMessage: deliveryCause?.message
+        });
         await recordSignupFailure(storage, request, {
           userName: username,
           inviteCode,
