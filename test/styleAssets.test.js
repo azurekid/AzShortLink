@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { readFileSync, statSync } = require('node:fs');
+const { readFileSync, readdirSync, statSync } = require('node:fs');
 const { join } = require('node:path');
 const { renderLoginPage } = require('../src/pages/loginPage');
 const { renderSignupPage } = require('../src/pages/signupPage');
@@ -27,4 +27,18 @@ test('stylesheets reference the local background image', () => {
   }
 
   assert.ok(statSync(join(assets, 'images', 'background.jpg')).size > 0);
+});
+
+test('first-party page sources do not embed static style blocks', () => {
+  const pages = join(__dirname, '..', 'src', 'pages');
+  const dashboard = join(__dirname, '..', 'src', 'dashboard');
+  const sources = [
+    join(__dirname, '..', 'index.html'),
+    ...readdirSync(pages).filter((file) => file.endsWith('.js')).map((file) => join(pages, file)),
+    ...readdirSync(dashboard).filter((file) => file.endsWith('.js')).map((file) => join(dashboard, file))
+  ];
+
+  for (const file of sources) {
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /<style\b/i, file);
+  }
 });

@@ -585,11 +585,28 @@ class TableStorage {
 
     for await (const item of entities) {
       events.push({
+        schemaVersion: Number(item.schemaVersion) || 1,
+        eventId: item.eventId || item.rowKey || '',
         timestamp: item.eventTime || '',
         action: item.action,
+        category: item.category || 'application',
         actorId: item.actorId || '',
         actorUsername: item.actorUsername || 'anonymous',
+        actorRole: item.actorRole || '',
         ip: item.ip || '',
+        sourceIp: item.sourceIp || item.ip || '',
+        userAgent: item.userAgent || '',
+        channel: item.channel || 'unknown',
+        authenticationMethod: item.authenticationMethod || 'unknown',
+        httpMethod: item.httpMethod || '',
+        requestPath: item.requestPath || '',
+        outcome: item.outcome || 'success',
+        sourceCountry: item.sourceCountry || '',
+        sourceCountryCode: item.sourceCountryCode || '',
+        sourceRegion: item.sourceRegion || '',
+        sourceCity: item.sourceCity || '',
+        sourceLatitude: Number.isFinite(item.sourceLatitude) ? item.sourceLatitude : null,
+        sourceLongitude: Number.isFinite(item.sourceLongitude) ? item.sourceLongitude : null,
         details: item.details || '{}'
       });
     }

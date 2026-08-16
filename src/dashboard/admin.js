@@ -265,8 +265,8 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           </div>
           <div id="audit-status" class="status" role="status" aria-live="polite"></div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Time (UTC)</th><th>Action</th><th>Actor</th><th>IP</th><th>Details</th></tr></thead>
-            <tbody id="audit-body"><tr><td colspan="5">No audit events loaded yet.</td></tr></tbody>
+            <thead><tr><th>Time (UTC)</th><th>Action</th><th>Outcome</th><th>Actor</th><th>Channel / auth</th><th>Source</th><th>Request</th><th>User agent</th><th>Details</th></tr></thead>
+            <tbody id="audit-body"><tr><td colspan="9">No audit events loaded yet.</td></tr></tbody>
           </table></div>
         </section>
       </div>
@@ -395,15 +395,22 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       try {
         const data = await apiRequest('/api/audit?' + buildAuditQuery());
         latestAuditEvents = data.events || [];
-        if (!latestAuditEvents.length) { body.innerHTML = '<tr><td colspan="5">No audit events in range.</td></tr>'; }
+        if (!latestAuditEvents.length) { body.innerHTML = '<tr><td colspan="9">No audit events in range.</td></tr>'; }
         else {
-          body.innerHTML = latestAuditEvents.map((event) =>
-            '<tr><td class="mono">' + escapeHtml(event.timestamp) + '</td>' +
-            '<td><span class="pill">' + escapeHtml(event.action) + '</span></td>' +
-            '<td class="mono">' + escapeHtml(event.actorUsername || 'anonymous') + '</td>' +
-            '<td class="mono">' + escapeHtml(event.ip || '-') + '</td>' +
-            '<td class="truncate" title="' + escapeHtml(JSON.stringify(event.details || {})) + '">' + escapeHtml(JSON.stringify(event.details || {})) + '</td></tr>'
-          ).join('');
+          body.innerHTML = latestAuditEvents.map((event) => {
+            const source = event.source || {};
+            const location = [source.city, source.region, source.countryCode || source.country].filter(Boolean).join(', ');
+            const details = JSON.stringify(event.details || {});
+            return '<tr><td class="mono">' + escapeHtml(event.timestamp) + '</td>' +
+              '<td><span class="pill">' + escapeHtml(event.action) + '</span><br><span class="audit-secondary">' + escapeHtml(event.category || 'application') + '</span></td>' +
+              '<td><span class="pill ' + (event.outcome === 'failure' ? 'down' : 'up') + '">' + escapeHtml(event.outcome || 'success') + '</span></td>' +
+              '<td class="mono">' + escapeHtml(event.actorUsername || 'anonymous') + '<br><span class="audit-secondary">' + escapeHtml(event.actorRole || '-') + '</span></td>' +
+              '<td>' + escapeHtml(event.channel || 'unknown') + '<br><span class="audit-secondary">' + escapeHtml(event.authenticationMethod || 'unknown') + '</span></td>' +
+              '<td class="mono">' + escapeHtml(event.sourceIp || event.ip || '-') + '<br><span class="audit-secondary">' + escapeHtml(location || 'unknown') + '</span></td>' +
+              '<td class="mono">' + escapeHtml((event.httpMethod || '') + ' ' + (event.requestPath || '')) + '</td>' +
+              '<td class="audit-user-agent" title="' + escapeHtml(event.userAgent || '') + '">' + escapeHtml(event.userAgent || '-') + '</td>' +
+              '<td class="truncate" title="' + escapeHtml(details) + '">' + escapeHtml(details) + '</td></tr>';
+          }).join('');
         }
         setPanelStatus('audit-status', 'Loaded ' + latestAuditEvents.length + ' event(s) (retention: ' + data.retentionDays + ' days).', 'success');
       } catch (error) { setPanelStatus('audit-status', error.message, 'error'); }
@@ -421,10 +428,26 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     const exportAuditButton = document.getElementById('export-audit-csv');
     if (exportAuditButton) exportAuditButton.addEventListener('click', () => {
       if (!latestAuditEvents.length) { setPanelStatus('audit-status', 'Nothing to export \u2014 load the audit trail first.', 'error'); return; }
-      const header = ['timestamp', 'action', 'actorId', 'actorUsername', 'ip', 'details'];
-      const rows = latestAuditEvents.map((event) => header.map((key) =>
-        csvEscape(key === 'details' ? JSON.stringify(event.details || {}) : event[key])
-      ).join(','));
+      const header = [
+        'schemaVersion', 'eventId', 'timestamp', 'action', 'category', 'outcome',
+        'actorId', 'actorUsername', 'actorRole', 'channel', 'authenticationMethod',
+        'sourceIp', 'sourceCountry', 'sourceCountryCode', 'sourceRegion', 'sourceCity',
+        'sourceLatitude', 'sourceLongitude', 'httpMethod', 'requestPath', 'userAgent', 'details'
+      ];
+      const rows = latestAuditEvents.map((event) => {
+        const source = event.source || {};
+        const values = {
+          ...event,
+          sourceCountry: source.country,
+          sourceCountryCode: source.countryCode,
+          sourceRegion: source.region,
+          sourceCity: source.city,
+          sourceLatitude: source.latitude,
+          sourceLongitude: source.longitude,
+          details: JSON.stringify(event.details || {})
+        };
+        return header.map((key) => csvEscape(values[key])).join(',');
+      });
       const csv = [header.join(','), ...rows].join('\\r\\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);

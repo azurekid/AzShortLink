@@ -143,6 +143,8 @@ button i { margin-right:6px; }
 .leaflet-popup-content-wrapper,.leaflet-popup-tip { color:var(--text); background:var(--surface); }
 .leaflet-control-attribution { color:#334155; }
 .table-wrap { overflow-x:auto; }
+.audit-secondary { color:var(--muted); font-size:.72rem; }
+.audit-user-agent { min-width:220px; max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 table { width:100%; border-collapse:collapse; font-size:.92rem; }
 th,td { padding:11px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
 th { color:var(--heading); font-size:.76rem; text-transform:uppercase; letter-spacing:.08em; }

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { InMemoryStorage } = require('../src/storage/inMemoryStorage');
-const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('../src/core/audit');
+const { ACTIONS, AUDIT_SCHEMA_VERSION, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('../src/core/audit');
 
 test('records and lists audit events newest first', async () => {
   const storage = new InMemoryStorage();
@@ -13,7 +13,15 @@ test('records and lists audit events newest first', async () => {
     action: ACTIONS.LOGIN_SUCCESS,
     actorId: 'alice',
     actorUsername: 'Alice',
-    ip: '203.0.113.5'
+    actorRole: 'user',
+    sourceIp: '203.0.113.5',
+    userAgent: 'Test Browser',
+    channel: 'dashboard',
+    authenticationMethod: 'password',
+    httpMethod: 'POST',
+    requestPath: '/dashboard/login',
+    outcome: 'success',
+    location: { country: 'United States', countryCode: 'US', region: 'CA', city: 'Los Angeles', latitude: 34.1, longitude: -118.2 }
   });
   await recordAuditEvent(storage, {
     action: ACTIONS.LINK_CREATED,
@@ -28,7 +36,32 @@ test('records and lists audit events newest first', async () => {
   assert.equal(events.length, 2);
   assert.equal(events[0].action, ACTIONS.LINK_CREATED);
   assert.equal(events[1].action, ACTIONS.LOGIN_SUCCESS);
-  assert.deepEqual(JSON.parse(events[0].details), { code: 'my-link', targetUrl: 'https://example.com' });
+  assert.equal(events[1].channel, 'dashboard');
+  assert.equal(events[1].authenticationMethod, 'password');
+  assert.equal(events[1].userAgent, 'Test Browser');
+  assert.equal(events[1].sourceCountryCode, 'US');
+  assert.equal(events[1].actorRole, 'user');
+  assert.equal(events[1].schemaVersion, AUDIT_SCHEMA_VERSION);
+  assert.equal(events[1].category, 'authentication');
+  assert.match(events[1].eventId, /^[0-9a-f-]{36}$/);
+  assert.deepEqual(JSON.parse(events[0].details), { linkCode: 'my-link', targetUrl: 'https://example.com' });
+});
+
+test('normalizes user and resource detail keys for SIEM consumers', async () => {
+  const storage = new InMemoryStorage();
+
+  await recordAuditEvent(storage, {
+    action: ACTIONS.USER_DELETED,
+    details: { deletedUsername: 'Alice', reason: 'administrator_request' }
+  });
+  await recordAuditEvent(storage, {
+    action: ACTIONS.INVITE_REDEEMED,
+    details: { code: 'invite-1', createdUsername: 'Bob' }
+  });
+
+  const events = await storage.listAuditEvents({ limit: 10 });
+  assert.deepEqual(JSON.parse(events[0].details), { userName: 'Bob', inviteCode: 'invite-1' });
+  assert.deepEqual(JSON.parse(events[1].details), { reason: 'administrator_request', userName: 'Alice' });
 });
 
 test('excludes audit events older than the retention window', async () => {

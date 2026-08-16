@@ -268,8 +268,9 @@ registerHttp('shortenUrl', {
         action: ACTIONS.LINK_CREATED,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request),
-        details: { code: result.code, targetUrl: result.targetUrl }
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { linkCode: result.code, targetUrl: result.targetUrl }
       });
       return {
         status: 201,
@@ -466,8 +467,9 @@ registerHttp('deleteLink', {
         action: ACTIONS.LINK_DELETED,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request),
-        details: { code: request.params.code, asAdmin: identity.role === 'admin' }
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { linkCode: request.params.code, administratorAction: identity.role === 'admin' }
       });
 
       return { status: 200, jsonBody: { deleted: true, code: request.params.code } };
@@ -620,7 +622,9 @@ registerHttp('changePassword', {
         action: ACTIONS.PASSWORD_CHANGED,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request)
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { userName: identity.username }
       });
       return {
         status: 200,
@@ -656,6 +660,30 @@ const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 
 function getClientIp(request) {
   return request.headers.get('x-azure-clientip') || (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+}
+
+function buildAuditContext(request, overrides = {}) {
+  const sourceIp = getClientIp(request);
+  const requestPath = new URL(request.url).pathname;
+  const sessionIdentity = getSessionIdentity(request, config);
+  const presentedKey = getApiKeyFromRequest(request);
+  let authenticationMethod = 'anonymous';
+
+  if (sessionIdentity) authenticationMethod = 'session';
+  else if (config.apiKey && timingSafeEqualString(presentedKey, config.apiKey)) authenticationMethod = 'deployment_api_key';
+  else if (presentedKey.startsWith(API_KEY_PREFIX)) authenticationMethod = 'personal_api_key';
+
+  return {
+    sourceIp,
+    userAgent: request.headers.get('user-agent') || '',
+    channel: requestPath.startsWith('/dashboard') || sessionIdentity ? 'dashboard' : 'api',
+    authenticationMethod,
+    httpMethod: request.method || '',
+    requestPath,
+    outcome: 'success',
+    location: lookupGeoLocation(sourceIp) || {},
+    ...overrides
+  };
 }
 
 // Separate trackers per endpoint so guessing invite codes can't lock a shared account out of
@@ -738,19 +766,59 @@ registerHttp('passkeyAuthenticationVerify', {
   handler: async (request) => {
     const payload = await request.json().catch(() => ({}));
     const state = verifyChallengeState(payload.state, config.identityHashSecret, 'authentication');
-    if (!state || !payload.response || !payload.response.id) return { status: 400, jsonBody: { error: 'Invalid or expired passkey request.' } };
     const storage = await storagePromise;
+    if (!state || !payload.response || !payload.response.id) {
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LOGIN_FAILED,
+        ...buildAuditContext(request, { authenticationMethod: 'passkey', outcome: 'failure' }),
+        details: { userName: 'unknown', reason: 'invalid_passkey_request' }
+      });
+      return { status: 400, jsonBody: { error: 'Invalid or expired passkey request.' } };
+    }
     const credential = await storage.getPasskey(payload.response.id);
-    if (!credential) return unauthorizedResponse();
+    if (!credential) {
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LOGIN_FAILED,
+        ...buildAuditContext(request, { authenticationMethod: 'passkey', outcome: 'failure' }),
+        details: { userName: 'unknown', credentialId: payload.response.id, reason: 'credential_not_found' }
+      });
+      return unauthorizedResponse();
+    }
     const user = await storage.getUser(credential.userId);
-    if (!user || (user.status || 'active') !== 'active') return unauthorizedResponse();
+    if (!user || (user.status || 'active') !== 'active') {
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LOGIN_FAILED,
+        actorId: credential.userId,
+        actorUsername: user?.username || credential.userId,
+        actorRole: user?.role || '',
+        ...buildAuditContext(request, { authenticationMethod: 'passkey', outcome: 'failure' }),
+        details: { userName: user?.username || credential.userId, credentialId: credential.id, reason: 'user_inactive' }
+      });
+      return unauthorizedResponse();
+    }
     try {
       const result = await verifyAuthentication(config, payload.response, state.challenge, credential);
-      if (!result.verified) return unauthorizedResponse();
+      if (!result.verified) throw new Error('Passkey verification failed.');
       await storage.updatePasskeyCounter(credential.id, result.authenticationInfo.newCounter);
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LOGIN_SUCCESS,
+        actorId: user.id,
+        actorUsername: user.username,
+        actorRole: user.role,
+        ...buildAuditContext(request, { authenticationMethod: 'passkey' }),
+        details: { userName: user.username, credentialId: credential.id, deviceType: credential.deviceType, backedUp: credential.backedUp }
+      });
       const token = createSessionToken(user, config.dashboardSessionSecret);
       return { status: 200, headers: { 'set-cookie': buildSessionCookie(token, request) }, jsonBody: { authenticated: true } };
     } catch {
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LOGIN_FAILED,
+        actorId: user.id,
+        actorUsername: user.username,
+        actorRole: user.role,
+        ...buildAuditContext(request, { authenticationMethod: 'passkey', outcome: 'failure' }),
+        details: { userName: user.username, credentialId: credential.id, reason: 'verification_failed' }
+      });
       return unauthorizedResponse();
     }
   }
@@ -803,7 +871,8 @@ registerHttp('dashboardLoginSubmit', {
       await recordAuditEvent(storage, {
         action: ACTIONS.LOGIN_FAILED,
         actorUsername: username || 'unknown',
-        ip
+        ...buildAuditContext(request, { authenticationMethod: 'password', outcome: 'failure' }),
+        details: { userName: username || 'unknown', reason: 'invalid_credentials' }
       });
       return {
         status: 401,
@@ -817,7 +886,9 @@ registerHttp('dashboardLoginSubmit', {
       action: ACTIONS.LOGIN_SUCCESS,
       actorId: user.id,
       actorUsername: user.username,
-      ip
+      actorRole: user.role,
+      ...buildAuditContext(request, { authenticationMethod: 'password' }),
+      details: { userName: user.username }
     });
     const token = createSessionToken(user, config.dashboardSessionSecret);
     return {
@@ -843,7 +914,9 @@ registerHttp('dashboardLogout', {
         action: ACTIONS.LOGOUT,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request)
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { userName: identity.username }
       });
     }
 
@@ -1068,15 +1141,17 @@ registerHttp('dashboardSignupSubmit', {
         action: ACTIONS.USER_CREATED,
         actorId: user.id,
         actorUsername: user.username,
-        ip: getClientIp(request),
-        details: { createdUsername: username, viaInvite: inviteCode }
+        actorRole: user.role,
+        ...buildAuditContext(request),
+        details: { userName: username, inviteCode, accountStatus: user.status || 'pending_verification' }
       });
       await recordAuditEvent(storage, {
         action: ACTIONS.INVITE_REDEEMED,
         actorId: user.id,
         actorUsername: user.username,
-        ip: getClientIp(request),
-        details: { code: inviteCode }
+        actorRole: user.role,
+        ...buildAuditContext(request),
+        details: { userName: username, inviteCode }
       });
 
       return {
@@ -1126,7 +1201,14 @@ registerHttp('dashboardVerifyEmail', {
     }
     const status = user.riskFlags && user.riskFlags.length ? 'pending_approval' : 'active';
     await storage.updateUserIdentity(user.id, { emailVerifiedAt: new Date().toISOString(), status });
-    await recordAuditEvent(storage, { action: ACTIONS.EMAIL_VERIFIED, actorId: user.id, actorUsername: user.username, ip: getClientIp(request), details: { status } });
+    await recordAuditEvent(storage, {
+      action: ACTIONS.EMAIL_VERIFIED,
+      actorId: user.id,
+      actorUsername: user.username,
+      actorRole: user.role,
+      ...buildAuditContext(request),
+      details: { userName: user.username, accountStatus: status, riskFlags: user.riskFlags || [] }
+    });
     return {
       status: 200,
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
@@ -1181,8 +1263,9 @@ registerHttp('createUser', {
         action: ACTIONS.USER_CREATED,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request),
-        details: { createdUsername: username }
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { userName: username, role, accountStatus: 'active' }
       });
       return { status: 201, jsonBody: user };
     } catch (err) {
@@ -1233,8 +1316,9 @@ registerHttp('createInvite', {
         action: ACTIONS.INVITE_CREATED,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request),
-        details: { code: invite.code }
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { inviteCode: invite.code }
       });
       return { status: 201, jsonBody: invite };
     } catch (err) {
@@ -1271,7 +1355,14 @@ registerHttp('updateUserAccess', {
       if (admins.length <= 1) return { status: 409, jsonBody: { error: 'At least one administrator is required.' } };
     }
     await storage.updateUserIdentity(target.id, changes);
-    await recordAuditEvent(storage, { action: ACTIONS.USER_ACCESS_CHANGED, actorId: identity.id, actorUsername: identity.username, ip: getClientIp(request), details: { targetUsername: username, ...changes } });
+    await recordAuditEvent(storage, {
+      action: ACTIONS.USER_ACCESS_CHANGED,
+      actorId: identity.id,
+      actorUsername: identity.username,
+      actorRole: identity.role,
+      ...buildAuditContext(request),
+      details: { userName: username, previousRole: target.role, previousStatus: target.status || 'active', ...changes }
+    });
     return { status: 200, jsonBody: { updated: true, username, ...changes } };
   }
 });
@@ -1303,7 +1394,14 @@ registerHttp('setBranchSuspension', {
     }
     const branch = users.filter((user) => branchIds.has(user.id));
     await Promise.all(branch.map((user) => storage.updateUserIdentity(user.id, { branchSuspended: suspended })));
-    await recordAuditEvent(storage, { action: ACTIONS.BRANCH_SUSPENSION_CHANGED, actorId: identity.id, actorUsername: identity.username, ip: getClientIp(request), details: { targetUsername: username, suspended, profiles: branch.length } });
+    await recordAuditEvent(storage, {
+      action: ACTIONS.BRANCH_SUSPENSION_CHANGED,
+      actorId: identity.id,
+      actorUsername: identity.username,
+      actorRole: identity.role,
+      ...buildAuditContext(request),
+      details: { userName: username, suspended, affectedUserCount: branch.length }
+    });
     return { status: 200, jsonBody: { updated: branch.length, suspended } };
   }
 });
@@ -1388,8 +1486,9 @@ registerHttp('revokeInvite', {
         action: ACTIONS.INVITE_REVOKED,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request),
-        details: { code }
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { inviteCode: code }
       });
       return { status: 204 };
     } catch (err) {
@@ -1436,8 +1535,9 @@ registerHttp('deleteUser', {
         action: ACTIONS.USER_DELETED,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request),
-        details: { deletedUsername: username }
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { userName: username }
       });
       return { status: 204 };
     } catch (err) {
@@ -1490,8 +1590,9 @@ registerHttp('resetUserPassword', {
         action: ACTIONS.PASSWORD_RESET_BY_ADMIN,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request),
-        details: { targetUsername: username }
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { userName: username }
       });
       return { status: 200, jsonBody: { updated: true, message: 'Password reset.' } };
     } catch (err) {
@@ -1526,8 +1627,9 @@ registerHttp('rotateApiKey', {
         action: ACTIONS.API_KEY_ROTATED,
         actorId: identity.id,
         actorUsername: identity.username,
-        ip: getClientIp(request),
-        details: { displayPrefix }
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: { userName: identity.username, apiKeyPrefix: displayPrefix }
       });
 
       // The plaintext key is returned once and never stored.
@@ -1582,7 +1684,20 @@ registerHttp('passkeyRegistrationVerify', {
         backedUp: info.credentialBackedUp,
         createdAt: new Date().toISOString()
       });
-      await recordAuditEvent(storage, { action: ACTIONS.PASSKEY_REGISTERED, actorId: identity.id, actorUsername: identity.username, ip: getClientIp(request), details: { credentialId: info.credential.id } });
+      await recordAuditEvent(storage, {
+        action: ACTIONS.PASSKEY_REGISTERED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        actorRole: identity.role,
+        ...buildAuditContext(request, { authenticationMethod: 'session' }),
+        details: {
+          userName: identity.username,
+          credentialId: info.credential.id,
+          deviceType: info.credentialDeviceType,
+          backedUp: info.credentialBackedUp,
+          transports: payload.response.response.transports || []
+        }
+      });
       return { status: 201, jsonBody: { registered: true, credentialId: info.credential.id } };
     } catch {
       return { status: 400, jsonBody: { error: 'Passkey verification failed.' } };
@@ -1667,11 +1782,30 @@ registerHttp('getAuditLog', {
             }
 
             return {
+              schemaVersion: event.schemaVersion || 1,
+              eventId: event.eventId || '',
               timestamp: event.timestamp,
               action: event.action,
+              category: event.category || 'application',
+              outcome: event.outcome || 'success',
               actorId: event.actorId,
               actorUsername: event.actorUsername,
-              ip: event.ip,
+              actorRole: event.actorRole || '',
+              channel: event.channel || 'unknown',
+              authenticationMethod: event.authenticationMethod || 'unknown',
+              sourceIp: event.sourceIp || event.ip || '',
+              ip: event.sourceIp || event.ip || '',
+              userAgent: event.userAgent || '',
+              httpMethod: event.httpMethod || '',
+              requestPath: event.requestPath || '',
+              source: {
+                country: event.sourceCountry || '',
+                countryCode: event.sourceCountryCode || '',
+                region: event.sourceRegion || '',
+                city: event.sourceCity || '',
+                latitude: event.sourceLatitude,
+                longitude: event.sourceLongitude
+              },
               details
             };
           })
@@ -1688,6 +1822,7 @@ registerHttp('getAuditLog', {
 });
 
 const STATIC_ASSETS = new Map([
+  ['css/home.css', { file: 'css/home.css', contentType: 'text/css; charset=utf-8' }],
   ['css/dashboard.css', { file: 'css/dashboard.css', contentType: 'text/css; charset=utf-8' }],
   ['css/auth.css', { file: 'css/auth.css', contentType: 'text/css; charset=utf-8' }],
   ['css/not-found.css', { file: 'css/not-found.css', contentType: 'text/css; charset=utf-8' }],

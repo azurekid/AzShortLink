@@ -98,7 +98,11 @@ test('appendAuditEvent stores the event time under eventTime, not the reserved t
 test('listAuditEvents maps the stored eventTime back onto timestamp', async () => {
   const { storage } = makeStorage({
     auditEntities: [
-      { partitionKey: 'AUDIT', rowKey: '1', eventTime: '2026-01-01T00:00:00.000Z', action: 'LOGIN_SUCCESS', actorUsername: 'admin' }
+      {
+        partitionKey: 'AUDIT', rowKey: '1', eventTime: '2026-01-01T00:00:00.000Z', action: 'LOGIN_SUCCESS',
+        actorUsername: 'admin', actorRole: 'admin', sourceIp: '203.0.113.5', userAgent: 'Browser',
+        channel: 'dashboard', authenticationMethod: 'password', sourceCountryCode: 'US'
+      }
     ]
   });
 
@@ -107,6 +111,9 @@ test('listAuditEvents maps the stored eventTime back onto timestamp', async () =
   assert.equal(events.length, 1);
   assert.equal(events[0].timestamp, '2026-01-01T00:00:00.000Z');
   assert.equal(events[0].action, 'LOGIN_SUCCESS');
+  assert.equal(events[0].channel, 'dashboard');
+  assert.equal(events[0].authenticationMethod, 'password');
+  assert.equal(events[0].sourceCountryCode, 'US');
 });
 
 test('listAuditEvents escapes single quotes in sinceIso before building the OData filter', async () => {

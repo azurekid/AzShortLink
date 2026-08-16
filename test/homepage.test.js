@@ -10,5 +10,7 @@ test('root homepage redirects visitors to the dashboard login page', () => {
 
   assert.match(html, /meta http-equiv="refresh" content="0; url=\/dashboard\/login"/);
   assert.match(html, /href="\/dashboard\/login"/);
+  assert.match(html, /href="\/assets\/css\/home\.css"/);
+  assert.doesNotMatch(html, /<style\b|style\s*=/);
   assert.match(html, /AzShortLink/);
 });
