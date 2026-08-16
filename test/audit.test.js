@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { InMemoryStorage } = require('../src/storage/inMemoryStorage');
-const { ACTIONS, AUDIT_SCHEMA_VERSION, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('../src/core/audit');
+const { ACTIONS, AUDIT_SCHEMA_VERSION, AUDIT_RETENTION_DAYS, formatAuditEvent, recordAuditEvent } = require('../src/core/audit');
 
 test('records and lists audit events newest first', async () => {
   const storage = new InMemoryStorage();
@@ -62,6 +62,38 @@ test('normalizes user and resource detail keys for SIEM consumers', async () => 
   const events = await storage.listAuditEvents({ limit: 10 });
   assert.deepEqual(JSON.parse(events[0].details), { userName: 'Bob', inviteCode: 'invite-1' });
   assert.deepEqual(JSON.parse(events[1].details), { reason: 'administrator_request', userName: 'Alice' });
+});
+
+test('formats the complete public SIEM event contract', () => {
+  const event = formatAuditEvent({
+    schemaVersion: 1,
+    eventId: '7d2b95dd-0fd6-4e74-8790-bd1357eb02db',
+    timestamp: '2026-08-16T12:00:00.000Z',
+    action: ACTIONS.LOGIN_SUCCESS,
+    category: 'authentication',
+    outcome: 'success',
+    actorId: 'alice',
+    actorUsername: 'Alice',
+    actorRole: 'user',
+    channel: 'dashboard',
+    authenticationMethod: 'passkey',
+    sourceIp: '203.0.113.5',
+    userAgent: 'Test Browser',
+    httpMethod: 'POST',
+    requestPath: '/dashboard/passkeys/verify',
+    sourceCountry: 'United States',
+    sourceCountryCode: 'US',
+    sourceRegion: 'CA',
+    sourceCity: 'Los Angeles',
+    sourceLatitude: 34.1,
+    sourceLongitude: -118.2,
+    details: '{"userName":"Alice","credentialId":"credential-1"}'
+  });
+
+  assert.equal(event.authenticationMethod, 'passkey');
+  assert.equal(event.source.countryCode, 'US');
+  assert.equal(event.sourceIp, '203.0.113.5');
+  assert.deepEqual(event.details, { userName: 'Alice', credentialId: 'credential-1' });
 });
 
 test('excludes audit events older than the retention window', async () => {

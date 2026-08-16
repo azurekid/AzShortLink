@@ -23,7 +23,7 @@ const {
   API_KEY_PREFIX,
   timingSafeEqualString
 } = require('./src/auth/auth');
-const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('./src/core/audit');
+const { ACTIONS, AUDIT_RETENTION_DAYS, formatAuditEvent, recordAuditEvent } = require('./src/core/audit');
 const { createRateLimiter } = require('./src/core/rateLimiter');
 const { buildOpenApiSpec } = require('./src/api/openApi');
 const { renderApiDocsPage } = require('./src/pages/apiDocsPage');
@@ -475,6 +475,15 @@ registerHttp('deleteLink', {
       return { status: 200, jsonBody: { deleted: true, code: request.params.code } };
     } catch (err) {
       if (err.code === 'FORBIDDEN') {
+        const storage = await storagePromise;
+        await recordAuditEvent(storage, {
+          action: ACTIONS.LINK_DELETE_DENIED,
+          actorId: identity.id,
+          actorUsername: identity.username,
+          actorRole: identity.role,
+          ...buildAuditContext(request, { outcome: 'failure' }),
+          details: { linkCode: request.params.code, reason: 'ownership_violation' }
+        });
         return { status: 403, jsonBody: { error: err.message } };
       }
       if (isStorageUnavailableError(err)) {
@@ -835,6 +844,13 @@ registerHttp('dashboardLoginSubmit', {
 
     const ip = getClientIp(request);
     if (loginThrottle.isLockedOut(ip)) {
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LOGIN_FAILED,
+        actorUsername: 'unknown',
+        ...buildAuditContext(request, { authenticationMethod: 'password', outcome: 'failure' }),
+        details: { userName: 'unknown', reason: 'rate_limited' }
+      });
       return {
         status: 429,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -857,6 +873,13 @@ registerHttp('dashboardLoginSubmit', {
         password = form.get('password') || '';
       }
     } catch {
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.LOGIN_FAILED,
+        actorUsername: username || 'unknown',
+        ...buildAuditContext(request, { authenticationMethod: 'password', outcome: 'failure' }),
+        details: { userName: username || 'unknown', reason: 'invalid_request_body' }
+      });
       return {
         status: 400,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -983,6 +1006,12 @@ registerHttp('dashboardSignupSubmit', {
   handler: async (request) => {
     const ip = getClientIp(request);
     if (signupThrottle.isLockedOut(ip)) {
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.SIGNUP_FAILED,
+        ...buildAuditContext(request, { outcome: 'failure' }),
+        details: { userName: 'unknown', reason: 'rate_limited' }
+      });
       return {
         status: 429,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1014,6 +1043,12 @@ registerHttp('dashboardSignupSubmit', {
         password = form.get('password') || '';
       }
     } catch {
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.SIGNUP_FAILED,
+        ...buildAuditContext(request, { outcome: 'failure' }),
+        details: { userName: username || 'unknown', inviteCode, reason: 'invalid_request_body' }
+      });
       return {
         status: 400,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1039,6 +1074,12 @@ registerHttp('dashboardSignupSubmit', {
 
     if (!invite || invite.redeemed) {
       signupThrottle.recordFailedAttempt(ip);
+      await recordAuditEvent(storage, {
+        action: ACTIONS.SIGNUP_FAILED,
+        actorUsername: username || 'unknown',
+        ...buildAuditContext(request, { outcome: 'failure' }),
+        details: { userName: username || 'unknown', inviteCode, reason: invite ? 'invite_redeemed' : 'invite_not_found' }
+      });
       return {
         status: invite ? 410 : 404,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1050,6 +1091,12 @@ registerHttp('dashboardSignupSubmit', {
 
     if (!/^[A-Za-z0-9._-]{3,64}$/.test(username) || !displayName || !EMAIL_PATTERN.test(email) || password.length < 12) {
       signupThrottle.recordFailedAttempt(ip);
+      await recordAuditEvent(storage, {
+        action: ACTIONS.SIGNUP_FAILED,
+        actorUsername: username || 'unknown',
+        ...buildAuditContext(request, { outcome: 'failure' }),
+        details: { userName: username || 'unknown', inviteCode, reason: 'invalid_profile_input' }
+      });
       return {
         status: 400,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1065,6 +1112,12 @@ registerHttp('dashboardSignupSubmit', {
       const emailHash = hashIdentityValue(email, config.identityHashSecret);
       if (await storage.getUserByEmailHash(emailHash)) {
         signupThrottle.recordFailedAttempt(ip);
+        await recordAuditEvent(storage, {
+          action: ACTIONS.SIGNUP_FAILED,
+          actorUsername: username,
+          ...buildAuditContext(request, { outcome: 'failure' }),
+          details: { userName: username, inviteCode, reason: 'identity_already_registered' }
+        });
         return {
           status: 409,
           headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1074,6 +1127,12 @@ registerHttp('dashboardSignupSubmit', {
 
       const sponsor = await storage.getUser(invite.createdBy);
       if (!sponsor || sponsor.status === 'suspended' || sponsor.branchSuspended) {
+        await recordAuditEvent(storage, {
+          action: ACTIONS.SIGNUP_FAILED,
+          actorUsername: username,
+          ...buildAuditContext(request, { outcome: 'failure' }),
+          details: { userName: username, inviteCode, sponsorUserName: invite.createdBy, reason: 'sponsor_unavailable' }
+        });
         return {
           status: 403,
           headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1083,6 +1142,12 @@ registerHttp('dashboardSignupSubmit', {
 
       const ancestry = buildInviteAncestry(sponsor);
       if (ancestry.inviteDepth > DEFAULT_INVITE_POLICY.maximumDepth) {
+        await recordAuditEvent(storage, {
+          action: ACTIONS.SIGNUP_FAILED,
+          actorUsername: username,
+          ...buildAuditContext(request, { outcome: 'failure' }),
+          details: { userName: username, inviteCode, sponsorUserName: sponsor.username, inviteDepth: ancestry.inviteDepth, reason: 'maximum_invite_depth' }
+        });
         return {
           status: 403,
           headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1166,6 +1231,12 @@ registerHttp('dashboardSignupSubmit', {
     } catch (err) {
       if (err.code === 'USER_EXISTS') {
         signupThrottle.recordFailedAttempt(ip);
+        await recordAuditEvent(storage, {
+          action: ACTIONS.SIGNUP_FAILED,
+          actorUsername: username,
+          ...buildAuditContext(request, { outcome: 'failure' }),
+          details: { userName: username, inviteCode, reason: 'user_name_exists' }
+        });
         return {
           status: 409,
           headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1299,6 +1370,14 @@ registerHttp('createInvite', {
       const rootDescendantCount = await storage.countRootDescendants(rootSponsorUserId);
       const eligibility = evaluateInviteEligibility({ user: sponsor, ownedLinkCount: ownedLinks.length, rootDescendantCount });
       if (!eligibility.allowed) {
+        await recordAuditEvent(storage, {
+          action: ACTIONS.INVITE_CREATION_DENIED,
+          actorId: identity.id,
+          actorUsername: identity.username,
+          actorRole: identity.role,
+          ...buildAuditContext(request, { outcome: 'failure' }),
+          details: { userName: identity.username, reason: eligibility.reason }
+        });
         return { status: 403, jsonBody: { error: eligibility.reason } };
       }
 
@@ -1306,6 +1385,14 @@ registerHttp('createInvite', {
       if (identity.role !== 'admin') {
         const invites = await storage.listInvites();
         if (invites.some((invite) => invite.createdBy === identity.id)) {
+          await recordAuditEvent(storage, {
+            action: ACTIONS.INVITE_CREATION_DENIED,
+            actorId: identity.id,
+            actorUsername: identity.username,
+            actorRole: identity.role,
+            ...buildAuditContext(request, { outcome: 'failure' }),
+            details: { userName: identity.username, reason: 'invite_limit_reached' }
+          });
           return { status: 409, jsonBody: { error: 'You have already created an invite link.' } };
         }
       }
@@ -1671,10 +1758,21 @@ registerHttp('passkeyRegistrationVerify', {
     if (!identity) return unauthorizedResponse();
     const payload = await request.json().catch(() => ({}));
     const state = verifyChallengeState(payload.state, config.identityHashSecret, 'registration');
-    if (!state || state.userId !== identity.id || !payload.response) return { status: 400, jsonBody: { error: 'Invalid or expired passkey request.' } };
+    if (!state || state.userId !== identity.id || !payload.response) {
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.PASSKEY_REGISTRATION_FAILED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        actorRole: identity.role,
+        ...buildAuditContext(request, { authenticationMethod: 'session', outcome: 'failure' }),
+        details: { userName: identity.username, reason: 'invalid_passkey_request' }
+      });
+      return { status: 400, jsonBody: { error: 'Invalid or expired passkey request.' } };
+    }
     try {
       const result = await verifyRegistration(config, payload.response, state.challenge);
-      if (!result.verified) return { status: 400, jsonBody: { error: 'Passkey verification failed.' } };
+      if (!result.verified) throw new Error('Passkey verification failed.');
       const info = result.registrationInfo;
       const storage = await storagePromise;
       await storage.savePasskey(identity.id, {
@@ -1700,6 +1798,15 @@ registerHttp('passkeyRegistrationVerify', {
       });
       return { status: 201, jsonBody: { registered: true, credentialId: info.credential.id } };
     } catch {
+      const storage = await storagePromise;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.PASSKEY_REGISTRATION_FAILED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        actorRole: identity.role,
+        ...buildAuditContext(request, { authenticationMethod: 'session', outcome: 'failure' }),
+        details: { userName: identity.username, reason: 'verification_failed' }
+      });
       return { status: 400, jsonBody: { error: 'Passkey verification failed.' } };
     }
   }
@@ -1756,6 +1863,10 @@ registerHttp('getAuditLog', {
     const sinceIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/.test(sinceParam) ? sinceParam : '';
     const actionFilter = params.get('action') || '';
     const actorFilter = params.get('actor') || '';
+    const channelFilter = params.get('channel') || '';
+    const outcomeFilter = params.get('outcome') || '';
+    const authenticationMethodFilter = params.get('authenticationMethod') || '';
+    const sourceCountryCodeFilter = (params.get('sourceCountryCode') || '').toUpperCase();
 
     try {
       const storage = await storagePromise;
@@ -1767,48 +1878,25 @@ registerHttp('getAuditLog', {
       if (actorFilter) {
         events = events.filter((event) => event.actorUsername === actorFilter);
       }
+      if (channelFilter) {
+        events = events.filter((event) => event.channel === channelFilter);
+      }
+      if (outcomeFilter) {
+        events = events.filter((event) => event.outcome === outcomeFilter);
+      }
+      if (authenticationMethodFilter) {
+        events = events.filter((event) => event.authenticationMethod === authenticationMethodFilter);
+      }
+      if (sourceCountryCodeFilter) {
+        events = events.filter((event) => event.sourceCountryCode === sourceCountryCodeFilter);
+      }
 
       return {
         status: 200,
         jsonBody: {
           retentionDays: AUDIT_RETENTION_DAYS,
           total: events.length,
-          events: events.slice(0, limit).map((event) => {
-            let details = {};
-            try {
-              details = JSON.parse(event.details || '{}');
-            } catch {
-              details = {};
-            }
-
-            return {
-              schemaVersion: event.schemaVersion || 1,
-              eventId: event.eventId || '',
-              timestamp: event.timestamp,
-              action: event.action,
-              category: event.category || 'application',
-              outcome: event.outcome || 'success',
-              actorId: event.actorId,
-              actorUsername: event.actorUsername,
-              actorRole: event.actorRole || '',
-              channel: event.channel || 'unknown',
-              authenticationMethod: event.authenticationMethod || 'unknown',
-              sourceIp: event.sourceIp || event.ip || '',
-              ip: event.sourceIp || event.ip || '',
-              userAgent: event.userAgent || '',
-              httpMethod: event.httpMethod || '',
-              requestPath: event.requestPath || '',
-              source: {
-                country: event.sourceCountry || '',
-                countryCode: event.sourceCountryCode || '',
-                region: event.sourceRegion || '',
-                city: event.sourceCity || '',
-                latitude: event.sourceLatitude,
-                longitude: event.sourceLongitude
-              },
-              details
-            };
-          })
+          events: events.slice(0, limit).map(formatAuditEvent)
         }
       };
     } catch (err) {

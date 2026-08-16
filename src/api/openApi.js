@@ -138,7 +138,11 @@ function buildOpenApiSpec(baseUrl, options = {}) {
             { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 1000, default: 200 } },
             { name: 'since', in: 'query', schema: { type: 'string', format: 'date-time' } },
             { name: 'action', in: 'query', schema: { type: 'string' } },
-            { name: 'actor', in: 'query', schema: { type: 'string' } }
+            { name: 'actor', in: 'query', schema: { type: 'string' } },
+            { name: 'channel', in: 'query', schema: { type: 'string', enum: ['api', 'dashboard'] } },
+            { name: 'outcome', in: 'query', schema: { type: 'string', enum: ['success', 'failure'] } },
+            { name: 'authenticationMethod', in: 'query', schema: { type: 'string', enum: ['anonymous', 'password', 'passkey', 'session', 'personal_api_key', 'deployment_api_key'] } },
+            { name: 'sourceCountryCode', in: 'query', schema: { type: 'string', minLength: 2, maxLength: 2 } }
           ],
           responses: { 200: jsonResponse('AuditResponse'), 401: errorResponse() }
         })
@@ -181,7 +185,29 @@ function buildOpenApiSpec(baseUrl, options = {}) {
         Invite: { type: 'object', properties: { code: { type: 'string' }, inviteUrl: { type: 'string', format: 'uri' }, createdAt: { type: 'string', format: 'date-time' }, createdBy: { type: 'string' }, redeemed: { type: 'boolean' } } },
         InvitesResponse: { type: 'object', properties: { total: { type: 'integer' }, invites: { type: 'array', items: { $ref: '#/components/schemas/Invite' } } } },
         MyInviteResponse: { type: 'object', properties: { invite: { allOf: [{ $ref: '#/components/schemas/Invite' }], nullable: true } } },
-        AuditResponse: { type: 'object', additionalProperties: true },
+        AuditSource: {
+          type: 'object',
+          properties: {
+            country: { type: 'string' }, countryCode: { type: 'string' }, region: { type: 'string' }, city: { type: 'string' },
+            latitude: { type: 'number', nullable: true }, longitude: { type: 'number', nullable: true }
+          }
+        },
+        AuditEvent: {
+          type: 'object',
+          required: ['schemaVersion', 'eventId', 'timestamp', 'action', 'category', 'outcome', 'channel'],
+          properties: {
+            schemaVersion: { type: 'integer' }, eventId: { type: 'string', format: 'uuid' }, timestamp: { type: 'string', format: 'date-time' },
+            action: { type: 'string' }, category: { type: 'string', enum: ['authentication', 'identity', 'link', 'invite', 'application'] },
+            outcome: { type: 'string', enum: ['success', 'failure'] }, actorId: { type: 'string' }, actorUsername: { type: 'string' }, actorRole: { type: 'string' },
+            channel: { type: 'string', enum: ['api', 'dashboard', 'unknown'] }, authenticationMethod: { type: 'string' }, sourceIp: { type: 'string' },
+            userAgent: { type: 'string' }, httpMethod: { type: 'string' }, requestPath: { type: 'string' }, source: { $ref: '#/components/schemas/AuditSource' },
+            details: { type: 'object', description: 'Action-specific fields. User targets always use `userName`; resources use `linkCode` or `inviteCode`.' }
+          }
+        },
+        AuditResponse: {
+          type: 'object',
+          properties: { retentionDays: { type: 'integer' }, total: { type: 'integer' }, events: { type: 'array', items: { $ref: '#/components/schemas/AuditEvent' } } }
+        },
         HealthResponse: { type: 'object', additionalProperties: true }
       }
     }

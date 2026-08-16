@@ -250,17 +250,27 @@ ${renderDocumentHead('AzShortLink Dashboard')}
                 <option value="LOGOUT">Logout</option>
                 <option value="LINK_CREATED">Link created</option>
                 <option value="LINK_DELETED">Link deleted</option>
+                <option value="LINK_DELETE_DENIED">Link delete denied</option>
+                <option value="SIGNUP_FAILED">Signup failed</option>
                 <option value="USER_CREATED">User created</option>
                 <option value="USER_DELETED">User deleted</option>
                 <option value="PASSWORD_CHANGED">Password changed</option>
                 <option value="PASSWORD_RESET_BY_ADMIN">Password reset by admin</option>
                 <option value="API_KEY_ROTATED">API key rotated</option>
                 <option value="INVITE_CREATED">Invite created</option>
+                <option value="INVITE_CREATION_DENIED">Invite creation denied</option>
                 <option value="INVITE_REVOKED">Invite revoked</option>
                 <option value="INVITE_REDEEMED">Invite redeemed</option>
+                <option value="USER_ACCESS_CHANGED">User access changed</option>
+                <option value="BRANCH_SUSPENSION_CHANGED">Branch suspension changed</option>
+                <option value="EMAIL_VERIFIED">Email verified</option>
+                <option value="PASSKEY_REGISTERED">Passkey registered</option>
+                <option value="PASSKEY_REGISTRATION_FAILED">Passkey registration failed</option>
               </select>
             </div>
             <div class="field"><label for="audit-filter-actor">Actor (username)</label><input id="audit-filter-actor" type="text" placeholder="e.g. admin" /></div>
+            <div class="field"><label for="audit-filter-channel">Channel</label><select id="audit-filter-channel"><option value="">All channels</option><option value="dashboard">Dashboard</option><option value="api">API</option></select></div>
+            <div class="field"><label for="audit-filter-outcome">Outcome</label><select id="audit-filter-outcome"><option value="">All outcomes</option><option value="success">Success</option><option value="failure">Failure</option></select></div>
             <div class="field"><label for="audit-filter-since">Since</label><input id="audit-filter-since" type="datetime-local" /></div>
           </div>
           <div id="audit-status" class="status" role="status" aria-live="polite"></div>
@@ -381,9 +391,13 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       const params = new URLSearchParams();
       const action = document.getElementById('audit-filter-action').value;
       const actor = document.getElementById('audit-filter-actor').value.trim();
+      const channel = document.getElementById('audit-filter-channel').value;
+      const outcome = document.getElementById('audit-filter-outcome').value;
       const since = document.getElementById('audit-filter-since').value;
       if (action) params.set('action', action);
       if (actor) params.set('actor', actor);
+      if (channel) params.set('channel', channel);
+      if (outcome) params.set('outcome', outcome);
       if (since) params.set('since', new Date(since).toISOString());
       params.set('limit', '1000');
       return params.toString();
@@ -417,7 +431,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     }
     const loadAuditButton = document.getElementById('load-audit');
     if (loadAuditButton) loadAuditButton.addEventListener('click', loadAuditLog);
-    ['audit-filter-action', 'audit-filter-actor', 'audit-filter-since'].forEach((id) => {
+    ['audit-filter-action', 'audit-filter-actor', 'audit-filter-channel', 'audit-filter-outcome', 'audit-filter-since'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', loadAuditLog);
     });

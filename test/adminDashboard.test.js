@@ -52,9 +52,14 @@ test('gives admins an audit trail tab with filters and CSV export', () => {
   assert.match(html, /data-panel="panel-audit"/);
   assert.match(html, /id="audit-filter-action"/);
   assert.match(html, /id="audit-filter-actor"/);
+  assert.match(html, /id="audit-filter-channel"/);
+  assert.match(html, /id="audit-filter-outcome"/);
   assert.match(html, /id="audit-filter-since"/);
   assert.match(html, /id="export-audit-csv"/);
   assert.match(html, /id="audit-body"/);
+  assert.match(html, /authenticationMethod/);
+  assert.match(html, /sourceCountryCode/);
+  assert.match(html, /userAgent/);
 });
 
 test('inline dashboard script is syntactically valid JavaScript', () => {

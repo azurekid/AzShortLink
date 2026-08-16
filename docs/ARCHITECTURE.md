@@ -146,6 +146,12 @@ Partition `LINK` stores code, destination, owner, creation time, redirect count,
 
 Partition `AUDIT` stores security events. Queries always enforce the 30-day cutoff even before opportunistic deletion removes expired entities.
 
+Audit records use a versioned SIEM-oriented schema. Every event includes a UUID event ID, UTC timestamp, action, category, outcome, actor identity and role, dashboard/API channel, authentication method, HTTP method and path, source IP, user agent, and locally resolved source country/region/city. Geographic coordinates are approximate. Action-specific values live in `details`; target identities always use `userName`, links use `linkCode`, and invitations use `inviteCode`.
+
+Password and passkey authentication records include both successes and failures. Failure reasons distinguish invalid credentials, rate limiting, malformed requests, unknown credentials, inactive users, and verification failures. Passkey registration records include the user, credential ID, device type, backup state, and transports. Passwords, session tokens, passkey public keys, complete API keys, and email addresses are never written to audit events.
+
+`GET /api/audit` supports incremental time filtering and filters for action, actor, channel, outcome, authentication method, and source country code. The dashboard presents the enriched fields and exports the complete schema as CSV for SIEM ingestion.
+
 Separate physical tables reduce accidental cross-disclosure between redirect data, credentials, and audit history.
 
 ## Analytics
@@ -170,7 +176,7 @@ Public URL, sender address, table names, and rate-limit values remain normal set
 - Keyed identity and risk hashes.
 - Current-state authorization.
 - API and login throttles.
-- Audit events excluding passwords, tokens, and full API keys.
+- Versioned, enriched audit events excluding passwords, tokens, passkey public keys, and full API keys.
 - Key Vault RBAC, soft delete, and purge protection.
 
 ## Failure Behavior

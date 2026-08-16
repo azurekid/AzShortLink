@@ -13,18 +13,22 @@ const ACTIONS = Object.freeze({
   LOGOUT: 'LOGOUT',
   LINK_CREATED: 'LINK_CREATED',
   LINK_DELETED: 'LINK_DELETED',
+  LINK_DELETE_DENIED: 'LINK_DELETE_DENIED',
+  SIGNUP_FAILED: 'SIGNUP_FAILED',
   USER_CREATED: 'USER_CREATED',
   USER_DELETED: 'USER_DELETED',
   PASSWORD_CHANGED: 'PASSWORD_CHANGED',
   PASSWORD_RESET_BY_ADMIN: 'PASSWORD_RESET_BY_ADMIN',
   API_KEY_ROTATED: 'API_KEY_ROTATED',
   INVITE_CREATED: 'INVITE_CREATED',
+  INVITE_CREATION_DENIED: 'INVITE_CREATION_DENIED',
   INVITE_REVOKED: 'INVITE_REVOKED',
   INVITE_REDEEMED: 'INVITE_REDEEMED',
   USER_ACCESS_CHANGED: 'USER_ACCESS_CHANGED',
   BRANCH_SUSPENSION_CHANGED: 'BRANCH_SUSPENSION_CHANGED',
   EMAIL_VERIFIED: 'EMAIL_VERIFIED',
-  PASSKEY_REGISTERED: 'PASSKEY_REGISTERED'
+  PASSKEY_REGISTERED: 'PASSKEY_REGISTERED',
+  PASSKEY_REGISTRATION_FAILED: 'PASSKEY_REGISTRATION_FAILED'
 });
 
 function retentionCutoffIso(now = Date.now()) {
@@ -33,7 +37,7 @@ function retentionCutoffIso(now = Date.now()) {
 
 function getEventCategory(action) {
   if (action.startsWith('LOGIN_') || action === ACTIONS.LOGOUT || action.startsWith('PASSKEY_') || action.includes('PASSWORD') || action === ACTIONS.API_KEY_ROTATED) return 'authentication';
-  if (action.startsWith('USER_') || action === ACTIONS.BRANCH_SUSPENSION_CHANGED || action === ACTIONS.EMAIL_VERIFIED) return 'identity';
+  if (action.startsWith('USER_') || action.startsWith('SIGNUP_') || action === ACTIONS.BRANCH_SUSPENSION_CHANGED || action === ACTIONS.EMAIL_VERIFIED) return 'identity';
   if (action.startsWith('LINK_')) return 'link';
   if (action.startsWith('INVITE_')) return 'invite';
   return 'application';
@@ -56,6 +60,43 @@ function normalizeAuditDetails(action, details = {}) {
     delete normalized.code;
   }
   return normalized;
+}
+
+function formatAuditEvent(event) {
+  let details = {};
+  try {
+    details = typeof event.details === 'string' ? JSON.parse(event.details || '{}') : (event.details || {});
+  } catch {
+    details = {};
+  }
+
+  return {
+    schemaVersion: event.schemaVersion || AUDIT_SCHEMA_VERSION,
+    eventId: event.eventId || '',
+    timestamp: event.timestamp,
+    action: event.action,
+    category: event.category || 'application',
+    outcome: event.outcome || 'success',
+    actorId: event.actorId || '',
+    actorUsername: event.actorUsername || 'anonymous',
+    actorRole: event.actorRole || '',
+    channel: event.channel || 'unknown',
+    authenticationMethod: event.authenticationMethod || 'unknown',
+    sourceIp: event.sourceIp || event.ip || '',
+    ip: event.sourceIp || event.ip || '',
+    userAgent: event.userAgent || '',
+    httpMethod: event.httpMethod || '',
+    requestPath: event.requestPath || '',
+    source: {
+      country: event.sourceCountry || '',
+      countryCode: event.sourceCountryCode || '',
+      region: event.sourceRegion || '',
+      city: event.sourceCity || '',
+      latitude: event.sourceLatitude ?? null,
+      longitude: event.sourceLongitude ?? null
+    },
+    details
+  };
 }
 
 // Best-effort: an audit-log failure must never block the user-facing action it describes.
@@ -121,6 +162,7 @@ module.exports = {
   ACTIONS,
   AUDIT_SCHEMA_VERSION,
   AUDIT_RETENTION_DAYS,
+  formatAuditEvent,
   normalizeAuditDetails,
   retentionCutoffIso,
   recordAuditEvent,

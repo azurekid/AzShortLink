@@ -35,5 +35,8 @@ test('includes administrator operations for an admin document', () => {
   assert.ok(spec.paths['/api/invites'].post);
   assert.ok(spec.paths['/api/invites/{code}'].delete);
   assert.ok(spec.paths['/api/audit'].get);
+  assert.ok(spec.paths['/api/audit'].get.parameters.some((parameter) => parameter.name === 'channel'));
+  assert.equal(spec.components.schemas.AuditEvent.properties.details.type, 'object');
+  assert.match(spec.components.schemas.AuditEvent.properties.details.description, /userName/);
   assert.equal(spec.tags.some((tag) => tag.name === 'Administration'), true);
 });
