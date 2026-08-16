@@ -35,7 +35,11 @@ The deploying identity needs `Owner`, or `Contributor` plus `Role Based Access C
 
 ## 2. Prepare Values
 
+Install dependencies before running repository scripts. Without this step, hash generation fails with `Cannot find module 'bcryptjs'`.
+
 ```bash
+npm ci
+
 RESOURCE_GROUP='rg-azshortlink'
 LOCATION='westeurope'
 BASE_URL='https://azhk.in'
@@ -44,7 +48,11 @@ API_KEY=$(openssl rand -hex 32)
 DASHBOARD_SESSION_SECRET=$(openssl rand -hex 32)
 IDENTITY_HASH_SECRET=$(openssl rand -hex 32)
 DASHBOARD_USERNAME='admin'
-DASHBOARD_PASSWORD_HASH=$(node scripts/generate-dashboard-hash.js '<strong-password>')
+
+read -rsp 'Dashboard password: ' DASHBOARD_PASSWORD
+echo
+export DASHBOARD_PASSWORD_HASH="$(node scripts/generate-dashboard-hash.js "$DASHBOARD_PASSWORD")"
+unset DASHBOARD_PASSWORD
 
 COMMUNICATION_SERVICES_CONNECTION_STRING='<acs-email-connection-string>'
 EMAIL_SENDER_ADDRESS='DoNotReply@<verified-domain>'
@@ -53,6 +61,8 @@ az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
 ```
 
 Do not commit these values. Secure Bicep parameters seed Key Vault, but their source belongs in a protected shell, CI secret store, or bootstrap system.
+
+The prompt keeps the plaintext password out of shell history. Rotate any real password or generated secret pasted into a command, transcript, chat, or tracked file.
 
 ## 3. Provision Infrastructure
 
@@ -201,7 +211,10 @@ App settings use versionless Key Vault references:
 ```bash
 az keyvault secret set --vault-name "$KEY_VAULT" --name shortlink-api-key --value "$(openssl rand -hex 32)"
 
-NEW_HASH=$(node scripts/generate-dashboard-hash.js '<new-password>')
+read -rsp 'New dashboard password: ' NEW_PASSWORD
+echo
+NEW_HASH=$(node scripts/generate-dashboard-hash.js "$NEW_PASSWORD")
+unset NEW_PASSWORD
 az keyvault secret set --vault-name "$KEY_VAULT" --name dashboard-password-hash --value "$NEW_HASH"
 az keyvault secret set --vault-name "$KEY_VAULT" --name dashboard-session-secret --value "$(openssl rand -hex 32)"
 az functionapp restart --resource-group "$RESOURCE_GROUP" --name "$FUNCTION_APP"
@@ -212,7 +225,7 @@ Do not rotate `identity-hash-secret` without migrating existing email and risk h
 ## 9. Operational Notes
 
 - `/api/health` returns `503` when required configuration or storage is unavailable.
-- API rate limiting is per worker, not deployment-wide.
+- Authentication and API rate limiting is shared across Function instances through Azure Table Storage.
 - Audit query retention is 30 days; deletion is opportunistic on writes.
 - Key Vault purge protection is enabled by default.
 - One deployment supports one canonical domain.

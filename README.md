@@ -117,7 +117,10 @@ Requirements: Node.js 22+, Azure Functions Core Tools v4, and Azurite or an acce
 ```bash
 npm ci
 cp local.settings.sample.json local.settings.json
-node scripts/generate-dashboard-hash.js '<local-password>'
+read -rsp 'Local dashboard password: ' LOCAL_PASSWORD
+echo
+export DASHBOARD_PASSWORD_HASH="$(node scripts/generate-dashboard-hash.js "$LOCAL_PASSWORD")"
+unset LOCAL_PASSWORD
 ```
 
 Add `DASHBOARD_USERNAME`, the generated `DASHBOARD_PASSWORD_HASH`, `DASHBOARD_SESSION_SECRET`, and `IDENTITY_HASH_SECRET` to `local.settings.json`. Configure ACS settings when testing invite email.
