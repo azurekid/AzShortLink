@@ -144,9 +144,15 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           </div>
           <div id="api-key-status" class="status" role="status" aria-live="polite"></div>
         </section>
+        <section class="card span-full">
+          <div class="card-header"><h2><i class="fas fa-fingerprint"></i>Passkeys</h2><button id="register-passkey" class="button-secondary button-compact" type="button">Add passkey</button></div>
+          <p>Use a device passkey for passwordless sign-in. Your password remains available for recovery.</p>
+          <div id="passkey-status" class="status" role="status" aria-live="polite"></div>
+        </section>
       </div>
     </section>
   </main>
+  <script src="/passkeys.js"></script>
   <script>${coreClientScript({
     safeUsername,
     safeBaseUrl,

@@ -29,7 +29,10 @@ function getConfig() {
     apiKey,
     dashboardUsername: process.env.DASHBOARD_USERNAME || '',
     dashboardPasswordHash,
-    dashboardSessionSecret: process.env.DASHBOARD_SESSION_SECRET || deriveSessionSecret(dashboardPasswordHash, apiKey)
+    dashboardSessionSecret: process.env.DASHBOARD_SESSION_SECRET || deriveSessionSecret(dashboardPasswordHash, apiKey),
+    identityHashSecret: process.env.IDENTITY_HASH_SECRET || deriveSessionSecret(dashboardPasswordHash, apiKey),
+    emailConnectionString: process.env.COMMUNICATION_SERVICES_CONNECTION_STRING || '',
+    emailSenderAddress: process.env.EMAIL_SENDER_ADDRESS || ''
   };
 }
 

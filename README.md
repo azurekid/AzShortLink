@@ -23,6 +23,7 @@ A low-cost Azure Functions URL shortener with authenticated link creation, redir
 - `GET /api/audit` (admin) queries the 30-day security audit trail for your SIEM
 - `GET /custom.css` serves `src/custom.css` so you can override the theme without touching app code
 - Admin-created user profiles with bcrypt password hashes and signed sessions
+- Local multi-admin RBAC with optional passkeys, email verification, invite ancestry, and branch moderation
 - Case-sensitive usernames
 - `GET /api/health` for table/queue/config diagnostics
 - Configurable Azure Function App CORS origins for deployed and local browser clients
@@ -30,6 +31,8 @@ A low-cost Azure Functions URL shortener with authenticated link creation, redir
 ## Configuration
 
 Set these app settings in Azure Function App:
+
+The included Bicep deployment stores sensitive settings in Azure Key Vault and configures versionless App Service Key Vault references using the Function App's system-assigned managed identity. Local development still reads the same names directly from `local.settings.json`.
 
 - `SHORTLINK_API_KEY` (required, used via `x-api-key` header or Authorization token header)
 - `PUBLIC_BASE_URL` (default: `https://azhk.in`)
@@ -40,6 +43,9 @@ Set these app settings in Azure Function App:
 - `DASHBOARD_USERNAME` (required for the initial admin profile)
 - `DASHBOARD_PASSWORD_HASH` (required; generate with `node scripts/generate-dashboard-hash.js '<password>'`)
 - `DASHBOARD_SESSION_SECRET` (optional; derived from the API key and password hash when omitted)
+- `IDENTITY_HASH_SECRET` (required for production; random HMAC key for email, IP, and device-signal hashes)
+- `COMMUNICATION_SERVICES_CONNECTION_STRING` (Azure Communication Services Email connection string)
+- `EMAIL_SENDER_ADDRESS` (verified Azure Communication Services sender)
 - `API_RATE_LIMIT_MAX_REQUESTS` (optional; API requests per client IP per window, default `60`)
 - `API_RATE_LIMIT_WINDOW_MS` (optional; rate-limit window in milliseconds, default `60000`)
 
@@ -115,6 +121,16 @@ curl -X POST "https://azhk.in/api/shorten" \
 ```
 
 The deployment-wide `SHORTLINK_API_KEY` still works and maps to the admin profile.
+
+### Identity and invitation controls
+
+Invite signups must verify an email address through Azure Communication Services Email. The plaintext address is used only for delivery; storage keeps a normalized keyed hash for duplicate prevention and a masked value for administration. Rotate `IDENTITY_HASH_SECRET` only with a migration plan because existing duplicate checks depend on it.
+
+Every invited profile records its direct sponsor, root sponsor, and invite depth. Non-admin profiles may create one invite only after the account is 7 days old, owns at least 3 links, has verified email, remains below depth 3, and its root branch remains below 100 descendants. Administrators are trusted roots and bypass the age/activity requirements.
+
+Shared signup IP and coarse device signals are stored as keyed hashes and flagged for review; they are not treated as proof of identity. A flagged profile becomes `pending_approval` after email verification. Administrators can approve or suspend profiles, promote additional administrators, and suspend or restore an entire descendant branch from the Admin tab. The final administrator cannot demote itself.
+
+Passkeys are optional for every active profile and are stored locally as WebAuthn public-key credentials. Password sign-in remains available for recovery. Production passkeys require an HTTPS `PUBLIC_BASE_URL` whose hostname matches the page serving the dashboard.
 
 ### Redirect telemetry
 

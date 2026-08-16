@@ -9,8 +9,9 @@ param apiKey = readEnvironmentVariable('SHORTLINK_API_KEY', '')
 // ── Optional overrides ────────────────────────────────────────────────────────
 param prefix = 'azsl'
 // param location    = 'westeurope'
-param baseUrl     = 'https://azhk.in'
+param baseUrl = 'https://azhk.in'
 param customDomain = 'azhk.in'
+param keyVaultPurgeProtectionEnabled = true
 // param tableName   = 'AzShortLinks'
 // param usersTableName = 'AzShortLinksUsers'
 // param auditTableName = 'AzShortLinksAudit'
@@ -42,3 +43,6 @@ param customCertificatePassword = readEnvironmentVariable('SHORTLINK_CERT_PFX_PA
 param dashboardUsername = readEnvironmentVariable('DASHBOARD_USERNAME', '')
 param dashboardPasswordHash = readEnvironmentVariable('DASHBOARD_PASSWORD_HASH', '')
 param dashboardSessionSecret = readEnvironmentVariable('DASHBOARD_SESSION_SECRET', '')
+param identityHashSecret = readEnvironmentVariable('IDENTITY_HASH_SECRET', '')
+param communicationServicesConnectionString = readEnvironmentVariable('COMMUNICATION_SERVICES_CONNECTION_STRING', '')
+param emailSenderAddress = readEnvironmentVariable('EMAIL_SENDER_ADDRESS', '')

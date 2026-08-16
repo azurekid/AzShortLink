@@ -42,12 +42,17 @@ The Bicep template in `infra/main.bicep` creates:
 - **Storage Tables** — three separate tables: `${tableName}` (links), `${usersTableName}` (user profiles/credentials/API keys), and `${auditTableName}` (audit trail). Splitting by data sensitivity limits the blast radius of a filter bug, an overly-broad SAS token, or a scoped RBAC role assignment.
 - **App Service Plan** — Consumption (Y1, Linux) for pay-per-use pricing
 - **Application Insights** — Telemetry and logging
-- **Function App** — Node 22, app settings pre-configured, CORS origins configurable
+- **Key Vault** — RBAC-enabled secret storage with soft delete and purge protection
+- **Function App** — Node 22 with a system-assigned managed identity, Key Vault references, and configurable CORS
+
+The template stores the storage connection string, API key, dashboard password hash/session secret, identity hash secret, and Azure Communication Services connection string in Key Vault. Function App settings contain versionless Key Vault references rather than secret values. Non-secret values such as table names, public URL, and sender address remain normal settings.
 
 ### Deploy the template
 
 ```bash
 API_KEY="$(openssl rand -hex 32)"   # generate a strong random key
+IDENTITY_HASH_SECRET="$(openssl rand -hex 32)"
+DASHBOARD_SESSION_SECRET="$(openssl rand -hex 32)"
 
 # Dashboard login credentials (required to access /dashboard)
 DASHBOARD_USERNAME="admin"
@@ -62,7 +67,11 @@ az deployment group create \
                corsAllowedOrigins='["https://azhk.in"]' \
                localDevCorsAllowedOrigins='["http://localhost:3000","http://localhost:5173"]' \
                dashboardUsername="$DASHBOARD_USERNAME" \
-               dashboardPasswordHash="$DASHBOARD_PASSWORD_HASH"
+               dashboardPasswordHash="$DASHBOARD_PASSWORD_HASH" \
+               dashboardSessionSecret="$DASHBOARD_SESSION_SECRET" \
+               identityHashSecret="$IDENTITY_HASH_SECRET" \
+               communicationServicesConnectionString="$COMMUNICATION_SERVICES_CONNECTION_STRING" \
+               emailSenderAddress="$EMAIL_SENDER_ADDRESS"
 
 # Save the API key — it is still supported for API automation and acts as the admin identity
 echo "SHORTLINK_API_KEY=$API_KEY"
@@ -70,6 +79,9 @@ echo "DASHBOARD_USERNAME=$DASHBOARD_USERNAME"
 ```
 
 Notes:
+- The deploying identity must be allowed to create role assignments (`Owner`, `User Access Administrator`, or `Role Based Access Control Administrator`) because the template grants the Function identity **Key Vault Secrets User** on the vault. `Contributor` alone is insufficient for this deployment step.
+- Secret parameters are marked `@secure()` and are written into Key Vault by the deployment. Keep the source values in a secure shell, CI secret store, or bootstrap process; never commit them to `main.bicepparam`.
+- Key Vault references can briefly report unresolved immediately after first deployment while managed-identity RBAC propagates. App Service retries automatically; allow several minutes before treating this as a failure.
 - `SHORTLINK_TABLE_NAME`, `SHORTLINK_USERS_TABLE_NAME` and `SHORTLINK_AUDIT_TABLE_NAME` are each created by the template as separate tables and also verified at runtime by the app. The users/audit table names default to `<SHORTLINK_TABLE_NAME>Users`/`<SHORTLINK_TABLE_NAME>Audit` if not overridden.
 - The app does **not** use Azure Storage Queues today, so no queue resources are provisioned.
 - CORS is configured from `corsAllowedOrigins` + `localDevCorsAllowedOrigins`, which are merged and exposed as an output.
@@ -120,10 +132,16 @@ APP_ID=$(az ad app list --display-name "azshortlink-github" --query "[0].appId" 
 az ad sp create --id "$APP_ID"
 SP_ID=$(az ad sp show --id "$APP_ID" --query id --output tsv)
 
-# Grant Contributor access on the resource group
+# Contributor deploys resources; RBAC Administrator allows the workflow to grant
+# the Function identity access to Key Vault secrets.
 az role assignment create \
   --assignee "$SP_ID" \
   --role Contributor \
+  --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
+
+az role assignment create \
+  --assignee "$SP_ID" \
+  --role "Role Based Access Control Administrator" \
   --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
 
 # Add federated credential for GitHub Actions
@@ -203,21 +221,19 @@ curl -L "https://$HOSTNAME/test"
 ## 7  Post-Deployment Notes
 
 - **Custom domain** — add a custom domain in the Function App blade and update `PUBLIC_BASE_URL` in app settings.
-- **Rotating the API key** — update the `SHORTLINK_API_KEY` app setting in the Azure portal or via:
+- **Rotating the API key** — add a new Key Vault secret version. The Function setting remains unchanged because it uses a versionless reference:
   ```bash
-  az functionapp config appsettings set \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$FUNCTION_APP" \
-    --settings SHORTLINK_API_KEY="<new-key>"
+  KEY_VAULT=$(az deployment group show --resource-group "$RESOURCE_GROUP" --name main \
+    --query properties.outputs.keyVaultName.value --output tsv)
+  az keyvault secret set --vault-name "$KEY_VAULT" --name shortlink-api-key --value "<new-key>"
   ```
-- **Rotating the dashboard password** — regenerate the hash and update the app setting. Because the session secret is derived from the password hash by default, this alone also invalidates all existing sessions:
+- **Rotating the dashboard password** — write a new password-hash secret version. Rotate the session secret too when you need to invalidate all existing sessions:
   ```bash
   NEW_HASH=$(node scripts/generate-dashboard-hash.js '<new-password>')
-  az functionapp config appsettings set \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$FUNCTION_APP" \
-    --settings DASHBOARD_PASSWORD_HASH="$NEW_HASH"
+  az keyvault secret set --vault-name "$KEY_VAULT" --name dashboard-password-hash --value "$NEW_HASH"
+  az keyvault secret set --vault-name "$KEY_VAULT" --name dashboard-session-secret --value "$(openssl rand -hex 32)"
   ```
+- App Service caches Key Vault references. A new version is picked up automatically, typically within 24 hours. To apply a rotation immediately, restart the Function App or refresh its Key Vault references through the App Service management API.
 - **CORS updates** — rerun the Bicep deployment with updated `corsAllowedOrigins` / `localDevCorsAllowedOrigins` values whenever you add a new browser client origin.
 - **Monitoring** — Application Insights is pre-configured. View logs and metrics in the Azure portal under the Application Insights resource.
 - **Costs** — The Consumption plan charges only for actual invocations. For typical low-traffic URL shorteners, monthly costs are near zero within the free tier.

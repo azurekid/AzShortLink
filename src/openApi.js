@@ -74,6 +74,15 @@ function buildOpenApiSpec(baseUrl) {
           responses: { 201: jsonResponse('ApiKeyResponse'), 401: errorResponse() }
         })
       },
+      '/api/profile/passkeys/options': {
+        post: sessionOperation('Begin passkey registration', 'Profile', { responses: { 200: jsonResponse('PasskeyOptionsResponse'), 401: errorResponse() } })
+      },
+      '/api/profile/passkeys/verify': {
+        post: sessionOperation('Complete passkey registration', 'Profile', {
+          requestBody: jsonBody('PasskeyVerifyRequest'),
+          responses: { 201: jsonResponse('PasskeyRegisteredResponse'), 400: errorResponse(), 401: errorResponse() }
+        })
+      },
       '/api/users': {
         get: adminOperation('List profiles', 'Administration', { responses: { 200: jsonResponse('UsersResponse'), 401: errorResponse() } }),
         post: adminOperation('Create a profile', 'Administration', {
@@ -92,6 +101,20 @@ function buildOpenApiSpec(baseUrl) {
           parameters: [usernameParameter()],
           requestBody: jsonBody('ResetPasswordRequest'),
           responses: { 200: jsonResponse('UpdateResponse'), 400: errorResponse(), 401: errorResponse(), 404: errorResponse() }
+        })
+      },
+      '/api/users/{username}/access': {
+        patch: adminOperation('Change profile role or approval status', 'Administration', {
+          parameters: [usernameParameter()],
+          requestBody: jsonBody('UserAccessRequest'),
+          responses: { 200: jsonResponse('UpdateResponse'), 400: errorResponse(), 401: errorResponse(), 404: errorResponse(), 409: errorResponse() }
+        })
+      },
+      '/api/users/{username}/branch': {
+        post: adminOperation('Suspend or restore an invitation branch', 'Administration', {
+          parameters: [usernameParameter()],
+          requestBody: jsonBody('BranchSuspensionRequest'),
+          responses: { 200: jsonResponse('UpdateResponse'), 401: errorResponse(), 404: errorResponse() }
         })
       },
       '/api/invites': {
@@ -146,7 +169,12 @@ function buildOpenApiSpec(baseUrl) {
         UpdateResponse: { type: 'object', properties: { updated: { type: 'boolean' }, message: { type: 'string' } } },
         ApiKeyResponse: { type: 'object', properties: { apiKey: { type: 'string', description: 'Shown once; store securely.' }, displayPrefix: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' } } },
         User: { type: 'object', properties: { username: { type: 'string' }, displayName: { type: 'string' }, role: { type: 'string', enum: ['admin', 'user'] }, createdAt: { type: 'string', format: 'date-time' } } },
-        CreateUserRequest: { type: 'object', required: ['username', 'password'], properties: { username: { type: 'string', pattern: '^[A-Za-z0-9._-]{3,64}$' }, displayName: { type: 'string' }, password: { type: 'string', format: 'password', minLength: 12 } } },
+        CreateUserRequest: { type: 'object', required: ['username', 'password'], properties: { username: { type: 'string', pattern: '^[A-Za-z0-9._-]{3,64}$' }, displayName: { type: 'string' }, password: { type: 'string', format: 'password', minLength: 12 }, role: { type: 'string', enum: ['user', 'admin'] } } },
+        UserAccessRequest: { type: 'object', properties: { role: { type: 'string', enum: ['user', 'admin'] }, status: { type: 'string', enum: ['active', 'pending_approval', 'suspended'] } } },
+        BranchSuspensionRequest: { type: 'object', required: ['suspended'], properties: { suspended: { type: 'boolean' } } },
+        PasskeyOptionsResponse: { type: 'object', properties: { options: { type: 'object', additionalProperties: true }, state: { type: 'string' } } },
+        PasskeyVerifyRequest: { type: 'object', required: ['response', 'state'], properties: { response: { type: 'object', additionalProperties: true }, state: { type: 'string' } } },
+        PasskeyRegisteredResponse: { type: 'object', properties: { registered: { type: 'boolean' }, credentialId: { type: 'string' } } },
         UsersResponse: { type: 'object', properties: { total: { type: 'integer' }, users: { type: 'array', items: { $ref: '#/components/schemas/User' } } } },
         Invite: { type: 'object', properties: { code: { type: 'string' }, inviteUrl: { type: 'string', format: 'uri' }, createdAt: { type: 'string', format: 'date-time' }, createdBy: { type: 'string' }, redeemed: { type: 'boolean' } } },
         InvitesResponse: { type: 'object', properties: { total: { type: 'integer' }, invites: { type: 'array', items: { $ref: '#/components/schemas/Invite' } } } },

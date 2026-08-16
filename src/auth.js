@@ -92,6 +92,10 @@ async function verifyCredentials(username, password, storage, fallbackHash) {
     return null;
   }
 
+  if (user && (user.status || 'active') !== 'active') {
+    return null;
+  }
+
   return user;
 }
 

@@ -7,12 +7,13 @@ class InMemoryStorage {
     this.items = new Map();
     this.users = new Map();
     this.apiKeys = new Map();
+    this.passkeys = new Map();
     this.invites = new Map();
     this.auditEvents = new Map();
     this.tableName = options.tableName || '';
   }
 
-  async createUser({ username, passwordHash, displayName, role = 'user', createdAt }) {
+  async createUser({ username, passwordHash, displayName, role = 'user', createdAt, ...identity }) {
     const userId = username.trim();
     if (this.users.has(userId)) {
       const err = new Error('User already exists');
@@ -20,7 +21,25 @@ class InMemoryStorage {
       throw err;
     }
 
-    const user = { id: userId, username: userId, passwordHash, displayName, role, createdAt };
+    const user = {
+      id: userId,
+      username: userId,
+      passwordHash,
+      displayName,
+      role,
+      createdAt,
+      status: identity.status || 'active',
+      emailHash: identity.emailHash || '',
+      emailMasked: identity.emailMasked || '',
+      emailVerifiedAt: identity.emailVerifiedAt || '',
+      invitedByUserId: identity.invitedByUserId || '',
+      rootSponsorUserId: identity.rootSponsorUserId || userId,
+      inviteDepth: Number(identity.inviteDepth) || 0,
+      signupIpHash: identity.signupIpHash || '',
+      signupDeviceHash: identity.signupDeviceHash || '',
+      riskFlags: identity.riskFlags || [],
+      branchSuspended: Boolean(identity.branchSuspended)
+    };
     this.users.set(userId, user);
     return { ...user, passwordHash: undefined };
   }
@@ -36,9 +55,39 @@ class InMemoryStorage {
       username: user.username,
       displayName: user.displayName,
       role: user.role,
+      status: user.status || 'active',
+      emailMasked: user.emailMasked || '',
+      emailVerifiedAt: user.emailVerifiedAt || '',
+      invitedByUserId: user.invitedByUserId || '',
+      rootSponsorUserId: user.rootSponsorUserId || user.id,
+      inviteDepth: Number(user.inviteDepth) || 0,
+      riskFlags: user.riskFlags || [],
+      branchSuspended: Boolean(user.branchSuspended),
       createdAt: user.createdAt,
       linkCount: Array.from(this.items.values()).filter((item) => item.ownerId === user.id).length
     }));
+  }
+
+  async getUserByEmailHash(emailHash) {
+    return Array.from(this.users.values()).find((user) => user.emailHash === emailHash) || null;
+  }
+
+  async updateUserIdentity(userId, changes) {
+    const user = this.users.get(String(userId).trim());
+    if (!user) return false;
+    this.users.set(user.id, { ...user, ...changes });
+    return true;
+  }
+
+  async countRootDescendants(rootSponsorUserId) {
+    return Array.from(this.users.values()).filter((user) => user.rootSponsorUserId === rootSponsorUserId && user.id !== rootSponsorUserId).length;
+  }
+
+  async findUsersByRiskSignal({ signupIpHash, signupDeviceHash }) {
+    return Array.from(this.users.values()).filter((user) =>
+      (signupIpHash && user.signupIpHash === signupIpHash) ||
+      (signupDeviceHash && user.signupDeviceHash === signupDeviceHash)
+    );
   }
 
   async updateUserPassword(userId, passwordHash) {
@@ -71,6 +120,26 @@ class InMemoryStorage {
     return userId ? this.getUser(userId) : null;
   }
 
+  async savePasskey(userId, credential) {
+    this.passkeys.set(credential.id, { ...credential, userId });
+  }
+
+  async getPasskey(credentialId) {
+    const credential = this.passkeys.get(credentialId);
+    return credential ? { ...credential } : null;
+  }
+
+  async listPasskeys(userId) {
+    return Array.from(this.passkeys.values()).filter((credential) => credential.userId === userId).map((credential) => ({ ...credential }));
+  }
+
+  async updatePasskeyCounter(credentialId, counter) {
+    const credential = this.passkeys.get(credentialId);
+    if (!credential) return false;
+    this.passkeys.set(credentialId, { ...credential, counter });
+    return true;
+  }
+
   async ensureAdminUser({ username, passwordHash }) {
     if (!username || !passwordHash || (await this.getUser(username))) {
       return;
@@ -94,6 +163,10 @@ class InMemoryStorage {
 
     if (user.apiKeyHash) {
       this.apiKeys.delete(user.apiKeyHash);
+    }
+
+    for (const [credentialId, credential] of this.passkeys) {
+      if (credential.userId === id) this.passkeys.delete(credentialId);
     }
 
     this.users.delete(id);
@@ -195,7 +268,7 @@ class InMemoryStorage {
     const cutoff = sinceIso || retentionCutoffIso();
     return Array.from(this.auditEvents.values())
       .filter((event) => event.timestamp >= cutoff)
-      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp) || b.rowKey.localeCompare(a.rowKey))
       .slice(0, limit);
   }
 

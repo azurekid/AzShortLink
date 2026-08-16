@@ -6,6 +6,7 @@ const { retentionCutoffIso, generateAuditRowKey } = require('../audit');
 const PARTITION_KEY = 'LINK';
 const USER_PARTITION_KEY = 'USER';
 const APIKEY_PARTITION_KEY = 'APIKEY';
+const PASSKEY_PARTITION_KEY = 'PASSKEY';
 const INVITE_PARTITION_KEY = 'INVITE';
 const AUDIT_PARTITION_KEY = 'AUDIT';
 
@@ -41,7 +42,7 @@ class TableStorage {
     this.tableName = this.tableNames.links;
   }
 
-  async createUser({ username, passwordHash, displayName, role = 'user', createdAt }) {
+  async createUser({ username, passwordHash, displayName, role = 'user', createdAt, ...identity }) {
     const userId = username.trim();
     try {
       await this.usersClient.createEntity({
@@ -51,7 +52,18 @@ class TableStorage {
         passwordHash,
         displayName,
         role,
-        createdAt
+        createdAt,
+        status: identity.status || 'active',
+        emailHash: identity.emailHash || '',
+        emailMasked: identity.emailMasked || '',
+        emailVerifiedAt: identity.emailVerifiedAt || '',
+        invitedByUserId: identity.invitedByUserId || '',
+        rootSponsorUserId: identity.rootSponsorUserId || userId,
+        inviteDepth: Number(identity.inviteDepth) || 0,
+        signupIpHash: identity.signupIpHash || '',
+        signupDeviceHash: identity.signupDeviceHash || '',
+        riskFlags: JSON.stringify(identity.riskFlags || []),
+        branchSuspended: Boolean(identity.branchSuspended)
       });
     } catch (err) {
       if (err && (err.statusCode === 409 || err.code === 'EntityAlreadyExists')) {
@@ -80,6 +92,17 @@ class TableStorage {
         displayName: item.displayName || item.username,
         role: item.role || 'user',
         createdAt: item.createdAt,
+        status: item.status || 'active',
+        emailHash: item.emailHash || '',
+        emailMasked: item.emailMasked || '',
+        emailVerifiedAt: item.emailVerifiedAt || '',
+        invitedByUserId: item.invitedByUserId || '',
+        rootSponsorUserId: item.rootSponsorUserId || item.rowKey,
+        inviteDepth: Number(item.inviteDepth) || 0,
+        signupIpHash: item.signupIpHash || '',
+        signupDeviceHash: item.signupDeviceHash || '',
+        riskFlags: JSON.parse(item.riskFlags || '[]'),
+        branchSuspended: Boolean(item.branchSuspended),
         apiKeyHash: item.apiKeyHash || '',
         apiKeyPrefix: item.apiKeyPrefix || '',
         apiKeyCreatedAt: item.apiKeyCreatedAt || ''
@@ -104,12 +127,61 @@ class TableStorage {
         username: item.username || item.rowKey,
         displayName: item.displayName || item.username || item.rowKey,
         role: item.role || 'user',
+        status: item.status || 'active',
+        emailMasked: item.emailMasked || '',
+        emailVerifiedAt: item.emailVerifiedAt || '',
+        invitedByUserId: item.invitedByUserId || '',
+        rootSponsorUserId: item.rootSponsorUserId || item.rowKey,
+        inviteDepth: Number(item.inviteDepth) || 0,
+        riskFlags: JSON.parse(item.riskFlags || '[]'),
+        branchSuspended: Boolean(item.branchSuspended),
         createdAt: item.createdAt || '',
         apiKeyPrefix: item.apiKeyPrefix || ''
       });
     }
 
     return users;
+  }
+
+  async getUserByEmailHash(emailHash) {
+    const escaped = String(emailHash).replaceAll("'", "''");
+    const entities = this.usersClient.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${USER_PARTITION_KEY}' and emailHash eq '${escaped}'` }
+    });
+    for await (const item of entities) return this.getUser(item.rowKey);
+    return null;
+  }
+
+  async updateUserIdentity(userId, changes) {
+    const entity = { partitionKey: USER_PARTITION_KEY, rowKey: String(userId).trim(), ...changes };
+    if (changes.riskFlags) entity.riskFlags = JSON.stringify(changes.riskFlags);
+    try {
+      await this.usersClient.updateEntity(entity, 'Merge');
+      return true;
+    } catch (err) {
+      if (err && err.statusCode === 404) return false;
+      throw err;
+    }
+  }
+
+  async countRootDescendants(rootSponsorUserId) {
+    const escaped = String(rootSponsorUserId).replaceAll("'", "''");
+    const entities = this.usersClient.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${USER_PARTITION_KEY}' and rootSponsorUserId eq '${escaped}'` }
+    });
+    let count = 0;
+    for await (const item of entities) if (item.rowKey !== rootSponsorUserId) count += 1;
+    return count;
+  }
+
+  async findUsersByRiskSignal({ signupIpHash, signupDeviceHash }) {
+    const users = await this.listUsers();
+    const matches = [];
+    for (const user of users) {
+      const full = await this.getUser(user.id);
+      if ((signupIpHash && full.signupIpHash === signupIpHash) || (signupDeviceHash && full.signupDeviceHash === signupDeviceHash)) matches.push(full);
+    }
+    return matches;
   }
 
   async updateUserPassword(userId, passwordHash) {
@@ -167,6 +239,59 @@ class TableStorage {
     }
   }
 
+  async savePasskey(userId, credential) {
+    await this.usersClient.upsertEntity({
+      partitionKey: PASSKEY_PARTITION_KEY,
+      rowKey: credential.id,
+      userId,
+      publicKey: Buffer.from(credential.publicKey).toString('base64url'),
+      counter: Number(credential.counter) || 0,
+      transports: JSON.stringify(credential.transports || []),
+      deviceType: credential.deviceType || '',
+      backedUp: Boolean(credential.backedUp),
+      createdAt: credential.createdAt || new Date().toISOString()
+    }, 'Replace');
+  }
+
+  async getPasskey(credentialId) {
+    try {
+      const item = await this.usersClient.getEntity(PASSKEY_PARTITION_KEY, credentialId);
+      return {
+        id: item.rowKey,
+        userId: item.userId,
+        publicKey: new Uint8Array(Buffer.from(item.publicKey, 'base64url')),
+        counter: Number(item.counter) || 0,
+        transports: JSON.parse(item.transports || '[]'),
+        deviceType: item.deviceType || '',
+        backedUp: Boolean(item.backedUp),
+        createdAt: item.createdAt || ''
+      };
+    } catch (err) {
+      if (err && err.statusCode === 404) return null;
+      throw err;
+    }
+  }
+
+  async listPasskeys(userId) {
+    const escaped = String(userId).replaceAll("'", "''");
+    const entities = this.usersClient.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${PASSKEY_PARTITION_KEY}' and userId eq '${escaped}'` }
+    });
+    const passkeys = [];
+    for await (const item of entities) passkeys.push(await this.getPasskey(item.rowKey));
+    return passkeys;
+  }
+
+  async updatePasskeyCounter(credentialId, counter) {
+    try {
+      await this.usersClient.updateEntity({ partitionKey: PASSKEY_PARTITION_KEY, rowKey: credentialId, counter }, 'Merge');
+      return true;
+    } catch (err) {
+      if (err && err.statusCode === 404) return false;
+      throw err;
+    }
+  }
+
   async ensureAdminUser({ username, passwordHash }) {
     if (!username || !passwordHash || (await this.getUser(username))) {
       return;
@@ -197,6 +322,9 @@ class TableStorage {
         }
       }
     }
+
+    const passkeys = await this.listPasskeys(id);
+    await Promise.all(passkeys.map((credential) => this.usersClient.deleteEntity(PASSKEY_PARTITION_KEY, credential.id)));
 
     await this.usersClient.deleteEntity(USER_PARTITION_KEY, id);
     return true;

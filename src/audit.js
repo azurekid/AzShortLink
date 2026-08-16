@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 
 const AUDIT_RETENTION_DAYS = 30;
 const AUDIT_RETENTION_MS = AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+let lastAuditTimestampMs = 0;
 
 const ACTIONS = Object.freeze({
   LOGIN_SUCCESS: 'LOGIN_SUCCESS',
@@ -18,7 +19,11 @@ const ACTIONS = Object.freeze({
   API_KEY_ROTATED: 'API_KEY_ROTATED',
   INVITE_CREATED: 'INVITE_CREATED',
   INVITE_REVOKED: 'INVITE_REVOKED',
-  INVITE_REDEEMED: 'INVITE_REDEEMED'
+  INVITE_REDEEMED: 'INVITE_REDEEMED',
+  USER_ACCESS_CHANGED: 'USER_ACCESS_CHANGED',
+  BRANCH_SUSPENSION_CHANGED: 'BRANCH_SUSPENSION_CHANGED',
+  EMAIL_VERIFIED: 'EMAIL_VERIFIED',
+  PASSKEY_REGISTERED: 'PASSKEY_REGISTERED'
 });
 
 function retentionCutoffIso(now = Date.now()) {
@@ -32,8 +37,10 @@ async function recordAuditEvent(storage, { action, actorId = '', actorUsername =
   }
 
   try {
+    const timestampMs = Math.max(Date.now(), lastAuditTimestampMs + 1);
+    lastAuditTimestampMs = timestampMs;
     await storage.appendAuditEvent({
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(timestampMs).toISOString(),
       action,
       actorId,
       actorUsername,

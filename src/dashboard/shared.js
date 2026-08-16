@@ -94,9 +94,9 @@ p { color:var(--muted); }
 .stack { display:grid; gap:14px; }
 .field { display:grid; gap:6px; }
 label { color:var(--muted); font-size:.88rem; }
-input,button,.button-link { min-height:44px; border:1px solid var(--border); border-radius:8px; font:inherit; transition:all var(--ease); }
-input { width:100%; padding:10px 12px; color:var(--text); background:var(--input); }
-input:hover { border-color:var(--border-hover); }
+input,select,button,.button-link { min-height:44px; border:1px solid var(--border); border-radius:8px; font:inherit; transition:all var(--ease); }
+input,select { width:100%; padding:10px 12px; color:var(--text); background:var(--input); }
+input:hover,select:hover { border-color:var(--border-hover); }
 input:focus,button:focus-visible,a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 button { padding:10px 16px; cursor:pointer; font-weight:700; color:#061017; background:var(--accent); }
 button:hover { transform:translateY(-1px); box-shadow:var(--glow); filter:brightness(1.08); }
@@ -352,6 +352,17 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
       if (!generatedApiKey) return;
       try { await navigator.clipboard.writeText(generatedApiKey); setPanelStatus('api-key-status', 'API key copied.', 'success'); }
       catch { setPanelStatus('api-key-status', 'Clipboard copy failed. Copy manually.', 'error'); }
+    });
+    document.getElementById('register-passkey').addEventListener('click', async () => {
+      setPanelStatus('passkey-status', 'Waiting for your authenticator...');
+      try {
+        const payload = await apiRequest('/api/profile/passkeys/options', { method: 'POST' });
+        const response = await SimpleWebAuthnBrowser.startRegistration({ optionsJSON: payload.options });
+        await apiRequest('/api/profile/passkeys/verify', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ response, state: payload.state })
+        });
+        setPanelStatus('passkey-status', 'Passkey added.', 'success');
+      } catch (error) { setPanelStatus('passkey-status', error.message || 'Passkey registration failed.', 'error'); }
     });
     async function loadProfile() {
       try {

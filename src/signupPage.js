@@ -11,9 +11,15 @@ function escapeHtml(value) {
 
 function renderSignupPage(options = {}) {
   const errorMessage = options.error ? escapeHtml(options.error) : '';
+  const message = options.message ? escapeHtml(options.message) : '';
   const invite = options.invite ? escapeHtml(options.invite) : '';
   // No invite code means the link is invalid/expired/redeemed - show a dead-end, not a form.
-  const body = invite
+  const body = message
+    ? `<span class="brand">AzShortLink</span>
+    <h1>Account verification</h1>
+    <p>${message}</p>
+    <a href="/dashboard/login">Back to sign in</a>`
+    : invite
     ? `<span class="brand">AzShortLink</span>
     <h1>Create your account</h1>
     <p>You've been invited to join AzShortLink.</p>
@@ -22,6 +28,8 @@ function renderSignupPage(options = {}) {
     <input id="username" name="username" type="text" autocomplete="username" pattern="[A-Za-z0-9._-]{3,64}" required />
     <label for="displayName">Display name</label>
     <input id="displayName" name="displayName" type="text" autocomplete="name" required />
+    <label for="email">Email address</label>
+    <input id="email" name="email" type="email" autocomplete="email" required />
     <label for="password">Password</label>
     <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required />
     <button type="submit">Create account</button>
@@ -102,7 +110,7 @@ function renderSignupPage(options = {}) {
   <link rel="stylesheet" href="/custom.css" />
 </head>
 <body>
-  ${invite
+  ${invite && !message
     ? `<form method="POST" action="/dashboard/signup" autocomplete="off">${body}</form>`
     : `<div style="position:relative;z-index:1;width:min(400px,100%);padding:30px;background:color-mix(in srgb,var(--card) 82%,transparent);border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 24px rgba(0,0,0,.45);backdrop-filter:blur(6px);">${body}</div>`}
 </body>

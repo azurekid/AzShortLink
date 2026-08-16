@@ -6,6 +6,9 @@ param prefix string = 'azsl'
 @description('Azure region for all resources.')
 param location string = resourceGroup().location
 
+@description('Enable Key Vault purge protection. Keep enabled for production; disabling only affects newly created vaults.')
+param keyVaultPurgeProtectionEnabled bool = true
+
 @description('API key for the shortlink service (required, keep secret).')
 @secure()
 param apiKey string
@@ -44,6 +47,17 @@ param dashboardPasswordHash string = ''
 @secure()
 param dashboardSessionSecret string = ''
 
+@description('Secret HMAC key used to hash verified identities and risk signals. Generate with openssl rand -hex 32.')
+@secure()
+param identityHashSecret string = ''
+
+@description('Azure Communication Services connection string used for verification email delivery.')
+@secure()
+param communicationServicesConnectionString string = ''
+
+@description('Verified sender address configured in Azure Communication Services Email.')
+param emailSenderAddress string = ''
+
 @description('Table Storage table name for short-link data.')
 param tableName string = 'AzShortLinks'
 
@@ -73,6 +87,8 @@ var storageAccountName = toLower('st${prefix}${take(suffix, 8)}')
 var appServicePlanName = 'asp-${prefix}-${take(suffix, 8)}'
 var functionAppName = 'func-${prefix}-${take(suffix, 8)}'
 var appInsightsName = 'appi-${prefix}-${take(suffix, 8)}'
+var keyVaultName = 'kv-${prefix}-${take(suffix, 8)}'
+var keyVaultSecretsUserRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
 
 // ── Storage Account ───────────────────────────────────────────────────────────
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
@@ -115,6 +131,82 @@ resource auditTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023
 var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 var effectiveCorsOrigins = union(corsAllowedOrigins, localDevCorsAllowedOrigins)
 
+// Versionless references automatically pick up the newest secret version after App Service's
+// Key Vault reference cache refreshes, without changing Function App configuration.
+var keyVaultSecretBaseUri = 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets'
+var storageConnectionStringReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/azure-webjobs-storage/)'
+var apiKeyReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/shortlink-api-key/)'
+var dashboardPasswordHashReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/dashboard-password-hash/)'
+var dashboardSessionSecretReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/dashboard-session-secret/)'
+var identityHashSecretReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/identity-hash-secret/)'
+var communicationServicesConnectionStringReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/communication-services-connection-string/)'
+
+// ── Key Vault ────────────────────────────────────────────────────────────────
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: keyVaultName
+  location: location
+  properties: {
+    tenantId: tenant().tenantId
+    enableRbacAuthorization: true
+    enablePurgeProtection: keyVaultPurgeProtectionEnabled
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 90
+    publicNetworkAccess: 'Enabled'
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+  }
+}
+
+resource storageConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'azure-webjobs-storage'
+  properties: {
+    value: storageConnectionString
+  }
+}
+
+resource apiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'shortlink-api-key'
+  properties: {
+    value: apiKey
+  }
+}
+
+resource dashboardPasswordHashSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(dashboardPasswordHash)) {
+  parent: keyVault
+  name: 'dashboard-password-hash'
+  properties: {
+    value: dashboardPasswordHash
+  }
+}
+
+resource dashboardSessionSecretResource 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(dashboardSessionSecret)) {
+  parent: keyVault
+  name: 'dashboard-session-secret'
+  properties: {
+    value: dashboardSessionSecret
+  }
+}
+
+resource identityHashSecretResource 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(identityHashSecret)) {
+  parent: keyVault
+  name: 'identity-hash-secret'
+  properties: {
+    value: identityHashSecret
+  }
+}
+
+resource communicationServicesConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(communicationServicesConnectionString)) {
+  parent: keyVault
+  name: 'communication-services-connection-string'
+  properties: {
+    value: communicationServicesConnectionString
+  }
+}
+
 // ── Application Insights ──────────────────────────────────────────────────────
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   name: appInsightsName
@@ -147,6 +239,17 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   name: functionAppName
   location: location
   kind: 'functionapp,linux'
+  dependsOn: [
+    storageConnectionStringSecret
+    apiKeySecret
+    dashboardPasswordHashSecret
+    dashboardSessionSecretResource
+    identityHashSecretResource
+    communicationServicesConnectionStringSecret
+  ]
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     serverFarmId: appServicePlan.id
     httpsOnly: true
@@ -160,11 +263,11 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
       appSettings: [
         {
           name: 'AzureWebJobsStorage'
-          value: storageConnectionString
+          value: storageConnectionStringReference
         }
         {
           name: 'AZURE_STORAGE_CONNECTION_STRING'
-          value: storageConnectionString
+          value: storageConnectionStringReference
         }
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
@@ -194,7 +297,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         }
         {
           name: 'SHORTLINK_API_KEY'
-          value: apiKey
+          value: apiKeyReference
         }
         {
           name: 'PUBLIC_BASE_URL'
@@ -218,14 +321,36 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         }
         {
           name: 'DASHBOARD_PASSWORD_HASH'
-          value: dashboardPasswordHash
+          value: empty(dashboardPasswordHash) ? '' : dashboardPasswordHashReference
         }
         {
           name: 'DASHBOARD_SESSION_SECRET'
-          value: dashboardSessionSecret
+          value: empty(dashboardSessionSecret) ? '' : dashboardSessionSecretReference
+        }
+        {
+          name: 'IDENTITY_HASH_SECRET'
+          value: empty(identityHashSecret) ? '' : identityHashSecretReference
+        }
+        {
+          name: 'COMMUNICATION_SERVICES_CONNECTION_STRING'
+          value: empty(communicationServicesConnectionString) ? '' : communicationServicesConnectionStringReference
+        }
+        {
+          name: 'EMAIL_SENDER_ADDRESS'
+          value: emailSenderAddress
         }
       ]
     }
+  }
+}
+
+resource functionKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, functionApp.id, keyVaultSecretsUserRoleDefinitionId)
+  scope: keyVault
+  properties: {
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleDefinitionId
   }
 }
 
@@ -335,6 +460,7 @@ output functionAppName string = functionApp.name
 output functionAppHostname string = functionApp.properties.defaultHostName
 output customDomainVerificationId string = functionApp.properties.customDomainVerificationId
 output storageAccountName string = storageAccount.name
+output keyVaultName string = keyVault.name
 output shortLinkTableName string = tableName
 output usersTableName string = usersTableName
 output auditTableName string = auditTableName

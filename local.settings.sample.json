@@ -7,6 +7,9 @@
     "SHORTLINK_TABLE_NAME": "AzShortLinks",
     "PUBLIC_BASE_URL": "https://azhk.in",
     "SHORTLINK_API_KEY": "replace-with-strong-secret",
+    "IDENTITY_HASH_SECRET": "replace-with-openssl-rand-hex-32",
+    "COMMUNICATION_SERVICES_CONNECTION_STRING": "endpoint=https://<resource>.communication.azure.com/;accesskey=<key>",
+    "EMAIL_SENDER_ADDRESS": "DoNotReply@your-verified-domain.example",
     "API_RATE_LIMIT_MAX_REQUESTS": "60",
     "API_RATE_LIMIT_WINDOW_MS": "60000"
   }

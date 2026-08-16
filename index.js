@@ -17,7 +17,6 @@ const {
   createSessionToken,
   buildSessionCookie,
   buildClearedSessionCookie,
-  isDashboardSessionValid,
   getSessionIdentity,
   generateApiKey,
   hashApiKey,
@@ -28,6 +27,25 @@ const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('./src/audit
 const { createRateLimiter } = require('./src/rateLimiter');
 const { buildOpenApiSpec } = require('./src/openApi');
 const { createQrCodePng } = require('./src/qrCode');
+const { DEFAULT_INVITE_POLICY, evaluateInviteEligibility, buildInviteAncestry } = require('./src/invitePolicy');
+const {
+  EMAIL_PATTERN,
+  normalizeEmail,
+  hashIdentityValue,
+  maskEmail,
+  createVerificationToken,
+  verifyVerificationToken,
+  buildRiskSignals
+} = require('./src/identity');
+const { sendVerificationEmail } = require('./src/email');
+const {
+  signChallengeState,
+  verifyChallengeState,
+  registrationOptions,
+  verifyRegistration,
+  authenticationOptions,
+  verifyAuthentication
+} = require('./src/passkeys');
 
 const config = getConfig();
 const apiRateLimiter = createRateLimiter({
@@ -134,12 +152,7 @@ function getApiKeyFromRequest(request) {
   return (request.headers.get('x-api-key') || '').trim();
 }
 
-function getRequestIdentity(request) {
-  const sessionIdentity = getSessionIdentity(request, config);
-  if (sessionIdentity) {
-    return sessionIdentity;
-  }
-
+function getDeploymentApiIdentity(request) {
   if (config.apiKey && timingSafeEqualString(getApiKeyFromRequest(request), config.apiKey)) {
     return {
       id: config.dashboardUsername.trim(),
@@ -152,12 +165,28 @@ function getRequestIdentity(request) {
   return null;
 }
 
+async function resolveSessionIdentity(request) {
+  const sessionIdentity = getSessionIdentity(request, config);
+  if (!sessionIdentity) return null;
+
+  try {
+    const storage = await storagePromise;
+    const user = await storage.getUser(sessionIdentity.id);
+    return user && (user.status || 'active') === 'active' && !user.branchSuspended
+      ? { id: user.id, username: user.username, displayName: user.displayName, role: user.role }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 // Personal keys are looked up by hash, so this needs storage and is async.
 async function resolveIdentity(request) {
-  const identity = getRequestIdentity(request);
-  if (identity) {
-    return identity;
-  }
+  const sessionIdentity = await resolveSessionIdentity(request);
+  if (sessionIdentity) return sessionIdentity;
+
+  const deploymentIdentity = getDeploymentApiIdentity(request);
+  if (deploymentIdentity) return deploymentIdentity;
 
   const presented = getApiKeyFromRequest(request);
   if (!presented.startsWith(API_KEY_PREFIX)) {
@@ -167,7 +196,7 @@ async function resolveIdentity(request) {
   try {
     const storage = await storagePromise;
     const user = await storage.getUserByApiKeyHash(hashApiKey(presented));
-    if (!user) {
+    if (!user || (user.status || 'active') !== 'active' || user.branchSuspended) {
       return null;
     }
 
@@ -306,14 +335,14 @@ registerHttp('dashboard', {
       return dashboardConfigErrorResponse();
     }
 
-    if (!isDashboardSessionValid(request, config)) {
+    const identity = await resolveSessionIdentity(request);
+    if (!identity) {
       return {
         status: 302,
         headers: { location: '/dashboard/login', 'cache-control': 'no-store' }
       };
     }
 
-    const identity = getSessionIdentity(request, config);
     const renderDashboard = identity && identity.role === 'admin' ? renderAdminDashboard : renderUserDashboard;
 
     return {
@@ -577,7 +606,7 @@ registerHttp('changePassword', {
   authLevel: 'anonymous',
   route: 'api/profile/password',
   handler: async (request) => {
-    const identity = getSessionIdentity(request, config);
+    const identity = await resolveSessionIdentity(request);
     if (!identity) {
       return unauthorizedResponse();
     }
@@ -696,7 +725,7 @@ registerHttp('dashboardLoginPage', {
       return dashboardConfigErrorResponse();
     }
 
-    if (isDashboardSessionValid(request, config)) {
+    if (await resolveSessionIdentity(request)) {
       return { status: 302, headers: { location: '/dashboard', 'cache-control': 'no-store' } };
     }
 
@@ -705,6 +734,41 @@ registerHttp('dashboardLoginPage', {
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
       body: renderLoginPage()
     };
+  }
+});
+
+registerHttp('passkeyAuthenticationOptions', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'dashboard/passkeys/options',
+  handler: async () => {
+    const options = await authenticationOptions(config);
+    return { status: 200, jsonBody: { options, state: signChallengeState({ purpose: 'authentication', challenge: options.challenge }, config.identityHashSecret) } };
+  }
+});
+
+registerHttp('passkeyAuthenticationVerify', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'dashboard/passkeys/verify',
+  handler: async (request) => {
+    const payload = await request.json().catch(() => ({}));
+    const state = verifyChallengeState(payload.state, config.identityHashSecret, 'authentication');
+    if (!state || !payload.response || !payload.response.id) return { status: 400, jsonBody: { error: 'Invalid or expired passkey request.' } };
+    const storage = await storagePromise;
+    const credential = await storage.getPasskey(payload.response.id);
+    if (!credential) return unauthorizedResponse();
+    const user = await storage.getUser(credential.userId);
+    if (!user || (user.status || 'active') !== 'active') return unauthorizedResponse();
+    try {
+      const result = await verifyAuthentication(config, payload.response, state.challenge, credential);
+      if (!result.verified) return unauthorizedResponse();
+      await storage.updatePasskeyCounter(credential.id, result.authenticationInfo.newCounter);
+      const token = createSessionToken(user, config.dashboardSessionSecret);
+      return { status: 200, headers: { 'set-cookie': buildSessionCookie(token, request) }, jsonBody: { authenticated: true } };
+    } catch {
+      return unauthorizedResponse();
+    }
   }
 });
 
@@ -873,6 +937,7 @@ registerHttp('dashboardSignupSubmit', {
     let inviteCode = '';
     let username = '';
     let displayName = '';
+    let email = '';
     let password = '';
 
     try {
@@ -881,12 +946,14 @@ registerHttp('dashboardSignupSubmit', {
         inviteCode = body.invite || '';
         username = body.username || '';
         displayName = body.displayName || '';
+        email = body.email || '';
         password = body.password || '';
       } else {
         const form = new URLSearchParams(await request.text());
         inviteCode = form.get('invite') || '';
         username = form.get('username') || '';
         displayName = form.get('displayName') || '';
+        email = form.get('email') || '';
         password = form.get('password') || '';
       }
     } catch {
@@ -900,6 +967,7 @@ registerHttp('dashboardSignupSubmit', {
     inviteCode = String(inviteCode).trim();
     username = String(username).trim();
     displayName = (String(displayName).trim() || username);
+    email = normalizeEmail(email);
 
     const storage = await storagePromise;
     let invite;
@@ -923,27 +991,78 @@ registerHttp('dashboardSignupSubmit', {
       };
     }
 
-    if (!/^[A-Za-z0-9._-]{3,64}$/.test(username) || !displayName || password.length < 12) {
+    if (!/^[A-Za-z0-9._-]{3,64}$/.test(username) || !displayName || !EMAIL_PATTERN.test(email) || password.length < 12) {
       signupThrottle.recordFailedAttempt(ip);
       return {
         status: 400,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
         body: renderSignupPage({
           invite: inviteCode,
-          error: 'Username must be 3-64 safe characters and password must be at least 12 characters.'
+          error: 'Enter a valid email; username must be 3-64 safe characters and password at least 12 characters.'
         })
       };
     }
 
     try {
       const createdAt = new Date().toISOString();
+      const emailHash = hashIdentityValue(email, config.identityHashSecret);
+      if (await storage.getUserByEmailHash(emailHash)) {
+        signupThrottle.recordFailedAttempt(ip);
+        return {
+          status: 409,
+          headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+          body: renderSignupPage({ invite: inviteCode, error: 'That email address is already registered.' })
+        };
+      }
+
+      const sponsor = await storage.getUser(invite.createdBy);
+      if (!sponsor || sponsor.status === 'suspended' || sponsor.branchSuspended) {
+        return {
+          status: 403,
+          headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+          body: renderSignupPage({ error: 'This invitation branch is unavailable.' })
+        };
+      }
+
+      const ancestry = buildInviteAncestry(sponsor);
+      if (ancestry.inviteDepth > DEFAULT_INVITE_POLICY.maximumDepth) {
+        return {
+          status: 403,
+          headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+          body: renderSignupPage({ error: 'This invitation chain has reached its maximum depth.' })
+        };
+      }
+
+      const riskSignals = buildRiskSignals(request, config.identityHashSecret);
+      const relatedProfiles = await storage.findUsersByRiskSignal(riskSignals);
+      const riskFlags = [];
+      if (relatedProfiles.some((profile) => profile.signupIpHash === riskSignals.signupIpHash)) riskFlags.push('SHARED_SIGNUP_IP');
+      if (relatedProfiles.some((profile) => profile.signupDeviceHash === riskSignals.signupDeviceHash)) riskFlags.push('SHARED_DEVICE_SIGNAL');
       const user = await storage.createUser({
         username,
         displayName,
         passwordHash: await bcrypt.hash(password, 12),
         role: 'user',
-        createdAt
+        createdAt,
+        status: 'pending_email',
+        emailHash,
+        emailMasked: maskEmail(email),
+        ...ancestry,
+        ...riskSignals,
+        riskFlags
       });
+
+      const verificationToken = createVerificationToken({ userId: user.id, emailHash }, config.identityHashSecret);
+      try {
+        await sendVerificationEmail(config, {
+          recipient: email,
+          displayName,
+          verificationUrl: `${config.baseUrl}/dashboard/verify-email?token=${encodeURIComponent(verificationToken)}`
+        });
+      } catch (err) {
+        await storage.deleteUser(user.id);
+        throw err;
+      }
 
       const redeemed = await storage.redeemInvite(inviteCode, user.id, createdAt);
       if (!redeemed) {
@@ -976,14 +1095,14 @@ registerHttp('dashboardSignupSubmit', {
         details: { code: inviteCode }
       });
 
-      const token = createSessionToken(user, config.dashboardSessionSecret);
       return {
-        status: 302,
+        status: 200,
         headers: {
-          location: '/dashboard',
+          'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-store',
-          'set-cookie': buildSessionCookie(token, request)
-        }
+          ...SECURITY_HEADERS
+        },
+        body: renderSignupPage({ message: `Check ${maskEmail(email)} for a verification link.` })
       };
     } catch (err) {
       if (err.code === 'USER_EXISTS') {
@@ -1006,6 +1125,32 @@ registerHttp('dashboardSignupSubmit', {
   }
 });
 
+registerHttp('dashboardVerifyEmail', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'dashboard/verify-email',
+  handler: async (request) => {
+    const token = new URL(request.url).searchParams.get('token') || '';
+    const claims = verifyVerificationToken(token, config.identityHashSecret);
+    if (!claims) {
+      return { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS }, body: renderSignupPage({ error: 'This verification link is invalid or expired.' }) };
+    }
+    const storage = await storagePromise;
+    const user = await storage.getUser(claims.userId);
+    if (!user || user.emailHash !== claims.emailHash) {
+      return { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS }, body: renderSignupPage({ error: 'This verification link is invalid.' }) };
+    }
+    const status = user.riskFlags && user.riskFlags.length ? 'pending_approval' : 'active';
+    await storage.updateUserIdentity(user.id, { emailVerifiedAt: new Date().toISOString(), status });
+    await recordAuditEvent(storage, { action: ACTIONS.EMAIL_VERIFIED, actorId: user.id, actorUsername: user.username, ip: getClientIp(request), details: { status } });
+    return {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+      body: renderSignupPage({ message: status === 'active' ? 'Email verified. You can now sign in.' : 'Email verified. An administrator must approve this account.' })
+    };
+  }
+});
+
 registerHttp('createUser', {
   methods: ['POST'],
   authLevel: 'anonymous',
@@ -1025,6 +1170,7 @@ registerHttp('createUser', {
 
     const username = typeof payload.username === 'string' ? payload.username.trim() : '';
     const displayName = typeof payload.displayName === 'string' ? payload.displayName.trim() : username;
+    const role = payload.role === 'admin' ? 'admin' : 'user';
     const password = typeof payload.password === 'string' ? payload.password : '';
     if (!/^[A-Za-z0-9._-]{3,64}$/.test(username) || !displayName || password.length < 12) {
       return {
@@ -1039,8 +1185,13 @@ registerHttp('createUser', {
         username,
         displayName,
         passwordHash: await bcrypt.hash(password, 12),
-        role: 'user',
-        createdAt: new Date().toISOString()
+        role,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        emailVerifiedAt: role === 'admin' ? new Date().toISOString() : '',
+        rootSponsorUserId: identity.id,
+        invitedByUserId: identity.id,
+        inviteDepth: 1
       });
       await recordAuditEvent(storage, {
         action: ACTIONS.USER_CREATED,
@@ -1075,6 +1226,15 @@ registerHttp('createInvite', {
     try {
       const storage = await storagePromise;
 
+      const sponsor = await storage.getUser(identity.id);
+      const ownedLinks = await storage.listLinks(1000, identity.id);
+      const rootSponsorUserId = (sponsor && sponsor.rootSponsorUserId) || identity.id;
+      const rootDescendantCount = await storage.countRootDescendants(rootSponsorUserId);
+      const eligibility = evaluateInviteEligibility({ user: sponsor, ownedLinkCount: ownedLinks.length, rootDescendantCount });
+      if (!eligibility.allowed) {
+        return { status: 403, jsonBody: { error: eligibility.reason } };
+      }
+
       // Admins can mint as many invite links as they need; everyone else gets exactly one.
       if (identity.role !== 'admin') {
         const invites = await storage.listInvites();
@@ -1099,6 +1259,68 @@ registerHttp('createInvite', {
       }
       return { status: 500, jsonBody: { error: 'Unable to create invite link.' } };
     }
+  }
+});
+
+registerHttp('updateUserAccess', {
+  methods: ['PATCH'],
+  authLevel: 'anonymous',
+  route: 'api/users/{username}/access',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') return unauthorizedResponse();
+    const username = decodeURIComponent(request.params.username || '').trim();
+    const payload = await request.json().catch(() => ({}));
+    const changes = {};
+    if (['user', 'admin'].includes(payload.role)) changes.role = payload.role;
+    if (['active', 'pending_approval', 'suspended'].includes(payload.status)) changes.status = payload.status;
+    if (!Object.keys(changes).length) return { status: 400, jsonBody: { error: 'A valid role or status is required.' } };
+
+    const storage = await storagePromise;
+    const target = await storage.getUser(username);
+    if (!target) return { status: 404, jsonBody: { error: 'Profile not found.' } };
+    if (target.id === identity.id && (changes.role === 'user' || changes.status === 'suspended')) {
+      return { status: 400, jsonBody: { error: 'You cannot remove your own administrator access.' } };
+    }
+    if (target.role === 'admin' && changes.role === 'user') {
+      const admins = (await storage.listUsers()).filter((user) => user.role === 'admin');
+      if (admins.length <= 1) return { status: 409, jsonBody: { error: 'At least one administrator is required.' } };
+    }
+    await storage.updateUserIdentity(target.id, changes);
+    await recordAuditEvent(storage, { action: ACTIONS.USER_ACCESS_CHANGED, actorId: identity.id, actorUsername: identity.username, ip: getClientIp(request), details: { targetUsername: username, ...changes } });
+    return { status: 200, jsonBody: { updated: true, username, ...changes } };
+  }
+});
+
+registerHttp('setBranchSuspension', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/users/{username}/branch',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') return unauthorizedResponse();
+    const username = decodeURIComponent(request.params.username || '').trim();
+    const payload = await request.json().catch(() => ({}));
+    const suspended = payload.suspended !== false;
+    const storage = await storagePromise;
+    const target = await storage.getUser(username);
+    if (!target) return { status: 404, jsonBody: { error: 'Profile not found.' } };
+    const users = await storage.listUsers();
+    const branchIds = new Set([target.id]);
+    let foundDescendant = true;
+    while (foundDescendant) {
+      foundDescendant = false;
+      for (const user of users) {
+        if (!branchIds.has(user.id) && branchIds.has(user.invitedByUserId)) {
+          branchIds.add(user.id);
+          foundDescendant = true;
+        }
+      }
+    }
+    const branch = users.filter((user) => branchIds.has(user.id));
+    await Promise.all(branch.map((user) => storage.updateUserIdentity(user.id, { branchSuspended: suspended })));
+    await recordAuditEvent(storage, { action: ACTIONS.BRANCH_SUSPENSION_CHANGED, actorId: identity.id, actorUsername: identity.username, ip: getClientIp(request), details: { targetUsername: username, suspended, profiles: branch.length } });
+    return { status: 200, jsonBody: { updated: branch.length, suspended } };
   }
 });
 
@@ -1302,7 +1524,7 @@ registerHttp('rotateApiKey', {
   authLevel: 'anonymous',
   route: 'api/profile/apikey',
   handler: async (request) => {
-    const identity = getSessionIdentity(request, config);
+    const identity = await resolveSessionIdentity(request);
     if (!identity) {
       return unauthorizedResponse();
     }
@@ -1336,12 +1558,60 @@ registerHttp('rotateApiKey', {
   }
 });
 
+registerHttp('passkeyRegistrationOptions', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/profile/passkeys/options',
+  handler: async (request) => {
+    const identity = await resolveSessionIdentity(request);
+    if (!identity) return unauthorizedResponse();
+    const storage = await storagePromise;
+    const user = await storage.getUser(identity.id);
+    const existing = await storage.listPasskeys(identity.id);
+    const options = await registrationOptions(config, user, existing);
+    return {
+      status: 200,
+      jsonBody: { options, state: signChallengeState({ purpose: 'registration', challenge: options.challenge, userId: identity.id }, config.identityHashSecret) }
+    };
+  }
+});
+
+registerHttp('passkeyRegistrationVerify', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/profile/passkeys/verify',
+  handler: async (request) => {
+    const identity = await resolveSessionIdentity(request);
+    if (!identity) return unauthorizedResponse();
+    const payload = await request.json().catch(() => ({}));
+    const state = verifyChallengeState(payload.state, config.identityHashSecret, 'registration');
+    if (!state || state.userId !== identity.id || !payload.response) return { status: 400, jsonBody: { error: 'Invalid or expired passkey request.' } };
+    try {
+      const result = await verifyRegistration(config, payload.response, state.challenge);
+      if (!result.verified) return { status: 400, jsonBody: { error: 'Passkey verification failed.' } };
+      const info = result.registrationInfo;
+      const storage = await storagePromise;
+      await storage.savePasskey(identity.id, {
+        ...info.credential,
+        transports: payload.response.response.transports || [],
+        deviceType: info.credentialDeviceType,
+        backedUp: info.credentialBackedUp,
+        createdAt: new Date().toISOString()
+      });
+      await recordAuditEvent(storage, { action: ACTIONS.PASSKEY_REGISTERED, actorId: identity.id, actorUsername: identity.username, ip: getClientIp(request), details: { credentialId: info.credential.id } });
+      return { status: 201, jsonBody: { registered: true, credentialId: info.credential.id } };
+    } catch {
+      return { status: 400, jsonBody: { error: 'Passkey verification failed.' } };
+    }
+  }
+});
+
 registerHttp('getProfile', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/profile',
   handler: async (request) => {
-    const identity = getSessionIdentity(request, config);
+    const identity = await resolveSessionIdentity(request);
     if (!identity) {
       return unauthorizedResponse();
     }
@@ -1451,6 +1721,17 @@ registerHttp('customCss', {
       body: css
     };
   }
+});
+
+registerHttp('passkeyBrowserScript', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'passkeys.js',
+  handler: async () => ({
+    status: 200,
+    headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'public, max-age=86400' },
+    body: await readFile(path.join(__dirname, 'node_modules', '@simplewebauthn', 'browser', 'dist', 'bundle', 'index.umd.min.js'), 'utf8')
+  })
 });
 
 registerHttp('health', {

@@ -49,6 +49,22 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async getUserByEmailHash() {
+    throw this.createError();
+  }
+
+  async updateUserIdentity() {
+    throw this.createError();
+  }
+
+  async countRootDescendants() {
+    throw this.createError();
+  }
+
+  async findUsersByRiskSignal() {
+    throw this.createError();
+  }
+
   async updateUserPassword() {
     throw this.createError();
   }
@@ -58,6 +74,22 @@ class UnavailableStorage {
   }
 
   async getUserByApiKeyHash() {
+    throw this.createError();
+  }
+
+  async savePasskey() {
+    throw this.createError();
+  }
+
+  async getPasskey() {
+    throw this.createError();
+  }
+
+  async listPasskeys() {
+    throw this.createError();
+  }
+
+  async updatePasskeyCounter() {
     throw this.createError();
   }
 

@@ -144,6 +144,11 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           </div>
           <div id="api-key-status" class="status" role="status" aria-live="polite"></div>
         </section>
+        <section class="card span-full">
+          <div class="card-header"><h2><i class="fas fa-fingerprint"></i>Passkeys</h2><button id="register-passkey" class="button-secondary button-compact" type="button">Add passkey</button></div>
+          <p>Use a device passkey for passwordless sign-in. Your password remains available for recovery.</p>
+          <div id="passkey-status" class="status" role="status" aria-live="polite"></div>
+        </section>
       </div>
     </section>
 
@@ -152,8 +157,8 @@ ${renderDocumentHead('AzShortLink Dashboard')}
         <section class="card span-full">
           <div class="card-header"><h2>Profiles</h2><button id="load-users" class="button-secondary button-compact" type="button">Refresh</button></div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Username</th><th>Display name</th><th>Role</th><th>Links</th><th>Created</th><th></th></tr></thead>
-            <tbody id="users-body"><tr><td colspan="6">No profiles loaded yet.</td></tr></tbody>
+            <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Sponsor</th><th>Depth</th><th>Links</th><th>Created</th><th></th></tr></thead>
+            <tbody id="users-body"><tr><td colspan="8">No profiles loaded yet.</td></tr></tbody>
           </table></div>
         </section>
         <section class="card" id="user-panel">
@@ -161,6 +166,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           <form id="user-form" class="stack">
             <div class="field"><label for="new-username">Username (case-sensitive)</label><input id="new-username" name="username" autocomplete="off" required pattern="[A-Za-z0-9._-]{3,64}" /></div>
             <div class="field"><label for="new-display-name">Display name</label><input id="new-display-name" name="displayName" required /></div>
+            <div class="field"><label for="new-role">Role</label><select id="new-role" name="role"><option value="user">User</option><option value="admin">Administrator</option></select></div>
             <div class="field"><label for="new-password">Temporary password</label><input id="new-password" name="password" type="password" minlength="12" autocomplete="new-password" required /></div>
             <button type="submit">Create user</button>
           </form>
@@ -233,6 +239,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       </div>
     </section>
   </main>
+  <script src="/passkeys.js"></script>
   <script>${coreClientScript({
     safeUsername,
     safeBaseUrl,
@@ -248,22 +255,45 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       if (!body) return;
       try {
         const data = await apiRequest('/api/users');
-        if (!data.users.length) { body.innerHTML = '<tr><td colspan="6">No profiles found.</td></tr>'; return; }
+        if (!data.users.length) { body.innerHTML = '<tr><td colspan="8">No profiles found.</td></tr>'; return; }
         body.innerHTML = data.users.map((item) => {
           const isSelf = item.username === CURRENT_USERNAME;
-          const actions = '<button class="button-secondary button-compact" type="button" data-reset-user="' + escapeHtml(item.username) + '">Reset password</button>' +
+          const accessAction = item.status === 'pending_approval'
+            ? '<button class="button-secondary button-compact" type="button" data-approve-user="' + escapeHtml(item.username) + '">Approve</button> '
+            : '';
+          const roleAction = !isSelf
+            ? '<button class="button-secondary button-compact" type="button" data-role-user="' + escapeHtml(item.username) + '" data-next-role="' + (item.role === 'admin' ? 'user' : 'admin') + '">' + (item.role === 'admin' ? 'Make user' : 'Make admin') + '</button> '
+            : '';
+          const branchAction = '<button class="button-secondary button-compact" type="button" data-branch-user="' + escapeHtml(item.username) + '" data-suspended="' + (!item.branchSuspended) + '">' + (item.branchSuspended ? 'Restore branch' : 'Suspend branch') + '</button> ';
+          const actions = accessAction + roleAction + branchAction + '<button class="button-secondary button-compact" type="button" data-reset-user="' + escapeHtml(item.username) + '">Reset password</button>' +
             (isSelf ? '' : ' <button class="button-danger button-compact" type="button" data-delete-user="' + escapeHtml(item.username) + '">Delete</button>');
-          return '<tr><td class="mono">' + escapeHtml(item.username) + '</td><td>' + escapeHtml(item.displayName || '-') + '</td>' +
+          return '<tr><td class="mono" title="' + escapeHtml(item.displayName || '') + '">' + escapeHtml(item.username) + '</td>' +
             '<td><span class="pill ' + (item.role === 'admin' ? 'admin' : '') + '">' + escapeHtml(item.role) + '</span></td>' +
-            '<td>' + escapeHtml(item.linkCount ?? 0) + '</td><td>' + escapeHtml(item.createdAt || '-') + '</td>' +
+            '<td>' + escapeHtml(item.status || 'active') + '</td><td class="mono">' + escapeHtml(item.invitedByUserId || '-') + '</td>' +
+            '<td>' + escapeHtml(item.inviteDepth || 0) + '</td><td>' + escapeHtml(item.linkCount ?? 0) + '</td><td>' + escapeHtml(item.createdAt || '-') + '</td>' +
             '<td class="actions">' + actions + '</td></tr>';
         }).join('');
-      } catch (error) { body.innerHTML = '<tr><td colspan="6">' + escapeHtml(error.message) + '</td></tr>'; }
+      } catch (error) { body.innerHTML = '<tr><td colspan="8">' + escapeHtml(error.message) + '</td></tr>'; }
     }
     const loadUsersButton = document.getElementById('load-users');
     if (loadUsersButton) loadUsersButton.addEventListener('click', loadUsers);
     const usersBodyEl = document.getElementById('users-body');
     if (usersBodyEl) usersBodyEl.addEventListener('click', async (event) => {
+      const approveButton = event.target.closest('[data-approve-user]');
+      if (approveButton) {
+        await apiRequest('/api/users/' + encodeURIComponent(approveButton.dataset.approveUser) + '/access', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'active' }) });
+        await loadUsers(); return;
+      }
+      const roleButton = event.target.closest('[data-role-user]');
+      if (roleButton) {
+        await apiRequest('/api/users/' + encodeURIComponent(roleButton.dataset.roleUser) + '/access', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: roleButton.dataset.nextRole }) });
+        await loadUsers(); return;
+      }
+      const branchButton = event.target.closest('[data-branch-user]');
+      if (branchButton) {
+        await apiRequest('/api/users/' + encodeURIComponent(branchButton.dataset.branchUser) + '/branch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ suspended: branchButton.dataset.suspended === 'true' }) });
+        await loadUsers(); return;
+      }
       const deleteButton = event.target.closest('[data-delete-user]');
       if (deleteButton) {
         const username = deleteButton.dataset.deleteUser;
