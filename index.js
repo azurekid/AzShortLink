@@ -26,6 +26,8 @@ const {
 } = require('./src/auth');
 const { ACTIONS, AUDIT_RETENTION_DAYS, recordAuditEvent } = require('./src/audit');
 const { createRateLimiter } = require('./src/rateLimiter');
+const { buildOpenApiSpec } = require('./src/openApi');
+const { createQrCodePng } = require('./src/qrCode');
 
 const config = getConfig();
 const apiRateLimiter = createRateLimiter({
@@ -74,6 +76,44 @@ const SECURITY_HEADERS = {
     "connect-src 'self'"
   ].join('; ')
 };
+
+const API_DOCS_SECURITY_HEADERS = {
+  ...SECURITY_HEADERS,
+  'content-security-policy': [
+    "default-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com",
+    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "img-src 'self' data: https://azurehacking.com https://blackcatwebshop.z13.web.core.windows.net",
+    "connect-src 'self'"
+  ].join('; ')
+};
+
+function renderApiDocsPage() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AzShortLink API Reference</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: '/openapi.json',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      persistAuthorization: true,
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: 'BaseLayout'
+    });
+  </script>
+</body>
+</html>`;
+}
 
 function configurationErrorResponse() {
   console.error('[api] SHORTLINK_API_KEY is not configured; restart the Function App after setting it.');
@@ -158,6 +198,35 @@ function unavailableStorageResponse(err) {
     }
   };
 }
+
+registerHttp('openApiDocument', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'openapi.json',
+  handler: async () => ({
+    status: 200,
+    headers: {
+      'content-type': 'application/vnd.oai.openapi+json;version=3.0; charset=utf-8',
+      'cache-control': 'public, max-age=300'
+    },
+    jsonBody: buildOpenApiSpec(config.baseUrl)
+  })
+});
+
+registerHttp('apiDocs', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'docs',
+  handler: async () => ({
+    status: 200,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'public, max-age=300',
+      ...API_DOCS_SECURITY_HEADERS
+    },
+    body: renderApiDocsPage()
+  })
+});
 
 registerHttp('shortenUrl', {
   methods: ['POST'],
@@ -401,6 +470,44 @@ registerHttp('deleteLink', {
       }
 
       return { status: 500, jsonBody: { error: 'Unable to delete short URL.' } };
+    }
+  }
+});
+
+registerHttp('downloadLinkQrCode', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/links/{code}/qr',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity) {
+      return unauthorizedResponse();
+    }
+
+    const code = decodeURIComponent(request.params.code || '').trim();
+    const service = await servicePromise;
+
+    try {
+      const links = await service.getStats(code, identity.role === 'admin' ? '' : identity.id);
+      if (!links.length) {
+        return { status: 404, jsonBody: { error: 'Short URL not found.' } };
+      }
+
+      return {
+        status: 200,
+        headers: {
+          'content-type': 'image/png',
+          'content-disposition': `attachment; filename="azshortlink-${code}-qr.png"`,
+          'cache-control': 'private, no-store'
+        },
+        body: await createQrCodePng(`${config.baseUrl}/${code}`)
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return unavailableStorageResponse(err);
+      }
+
+      return { status: 500, jsonBody: { error: 'Unable to generate QR code.' } };
     }
   }
 });

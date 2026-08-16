@@ -13,6 +13,7 @@ A low-cost Azure Functions URL shortener with authenticated link creation, redir
 - `GET /dashboard` authenticated UI for creating and inspecting profile-owned short links
 - Tabbed dashboard: Links, Statistics, Account, and an admin-only Admin tab
 - `DELETE /api/links/{code}` to remove links you own (admins may remove any link)
+- `GET /api/links/{code}/qr` downloads a PNG QR code for a link you own (admins may access any link)
 - `GET /api/analytics` for aggregated redirect statistics
 - `POST /api/profile/password` so users can rotate their own password
 - `POST /api/profile/apikey` issues a personal API key scoped to the signed-in profile
@@ -49,6 +50,8 @@ The app does not use Azure Storage Queues today, so only the table resource is p
 You can use `local.settings.sample.json` as a template for local settings.
 
 ## API
+
+The complete OpenAPI 3.0 document is available at [`/openapi.json`](/openapi.json). Open [`/docs`](/docs) for the interactive Swagger UI, where developers can enter an `x-api-key` or bearer token and send requests to the current deployment.
 
 ### Create short URL
 

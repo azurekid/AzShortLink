@@ -15,6 +15,7 @@ test('shows admin-only profile and health panels for admins', () => {
   assert.match(html, /id="health-body"/);
   assert.match(html, /All links/);
   assert.match(html, /<th>Owner<\/th>/);
+  assert.match(html, /id="download-qr"/);
 });
 
 test('shows an invite links panel to admins listing every invite, not just their own', () => {

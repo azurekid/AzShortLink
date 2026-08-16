@@ -94,13 +94,15 @@ p { color:var(--muted); }
 .stack { display:grid; gap:14px; }
 .field { display:grid; gap:6px; }
 label { color:var(--muted); font-size:.88rem; }
-input,button { min-height:44px; border:1px solid var(--border); border-radius:8px; font:inherit; transition:all var(--ease); }
+input,button,.button-link { min-height:44px; border:1px solid var(--border); border-radius:8px; font:inherit; transition:all var(--ease); }
 input { width:100%; padding:10px 12px; color:var(--text); background:var(--input); }
 input:hover { border-color:var(--border-hover); }
 input:focus,button:focus-visible,a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 button { padding:10px 16px; cursor:pointer; font-weight:700; color:#061017; background:var(--accent); }
 button:hover { transform:translateY(-1px); box-shadow:var(--glow); filter:brightness(1.08); }
 button i { margin-right:6px; }
+.button-link { display:inline-flex; align-items:center; justify-content:center; padding:9px 16px; font-weight:700; }
+.button-link i { margin-right:6px; }
 .button-secondary { color:var(--text); background:transparent; }
 .button-secondary:hover { color:var(--accent); border-color:var(--accent); background:rgba(0,212,255,.08); }
 .button-danger { color:var(--danger); background:transparent; border-color:rgba(239,68,68,.5); }
@@ -205,6 +207,7 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
     const statsBodyEl = document.getElementById('stats-body');
     const createForm = document.getElementById('create-form');
     const copyResultButton = document.getElementById('copy-result');
+    const downloadQrLink = document.getElementById('download-qr');
     const escapeHtml = (value) => String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
     const setStatus = (message, kind = '') => { statusEl.textContent = message; statusEl.className = kind ? 'status ' + kind : 'status'; };
     const setPanelStatus = (id, message, kind = '') => { const el = document.getElementById(id); if (el) { el.textContent = message; el.className = kind ? 'status ' + kind : 'status'; } };
@@ -252,7 +255,7 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
     createForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       setStatus('Creating link...');
-      resultEl.hidden = true; copyResultButton.hidden = true;
+      resultEl.hidden = true; copyResultButton.hidden = true; downloadQrLink.hidden = true;
       const payload = { url: document.getElementById('url').value.trim() };
       const alias = document.getElementById('alias').value.trim();
       if (alias) payload.uniqueValue = alias;
@@ -261,7 +264,9 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
         latestShortUrl = result.shortUrl;
         const safeUrl = escapeHtml(latestShortUrl);
         resultEl.innerHTML = 'Created: <a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">' + safeUrl + '</a>';
-        resultEl.hidden = false; copyResultButton.hidden = false;
+        downloadQrLink.href = '/api/links/' + encodeURIComponent(result.code) + '/qr';
+        downloadQrLink.download = 'azshortlink-' + result.code + '-qr.png';
+        resultEl.hidden = false; copyResultButton.hidden = false; downloadQrLink.hidden = false;
         setStatus('Short link created.', 'success');
         createForm.reset();
         await loadStats();

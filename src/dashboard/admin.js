@@ -50,7 +50,10 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           </form>
           <div id="status" class="status" role="status" aria-live="polite">Ready.</div>
           <div id="result" class="result" hidden></div>
-          <button id="copy-result" class="button-secondary" type="button" hidden>Copy result</button>
+          <div class="actions">
+            <button id="copy-result" class="button-secondary" type="button" hidden><i class="fas fa-copy"></i>Copy result</button>
+            <a id="download-qr" class="button-link button-secondary" hidden><i class="fas fa-qrcode"></i>Download QR code</a>
+          </div>
         </section>
         <section class="card">
           <div class="card-header"><h2>API reference</h2></div>

@@ -14,6 +14,9 @@ test('renders terminal dashboard form and API hooks', () => {
   assert.match(html, /id="create-form"/);
   assert.match(html, /id="load-stats"/);
   assert.match(html, /Copy result/);
+  assert.match(html, /id="download-qr"/);
+  assert.match(html, /Download QR code/);
+  assert.match(html, /encodeURIComponent\(result\.code\) \+ '\/qr'/);
 });
 
 test('renders configuration warning when API key is missing', () => {
