@@ -16,7 +16,9 @@ const HEAD_ASSETS = `  <link rel="icon" type="image/svg+xml" href="${FAVICON_URL
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />`;
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>`;
 
 const THEME_CSS = `
 :root {
@@ -155,6 +157,13 @@ button i { margin-right:6px; }
 .bar-track { height:12px; border-radius:999px; background:rgba(255,255,255,.05); overflow:hidden; }
 .bar-fill { height:100%; border-radius:999px; transition:width 600ms cubic-bezier(.4,0,.2,1); }
 .bar-count { color:var(--muted); font-family:"Share Tech Mono",monospace; }
+.analytics-filter { display:flex; align-items:end; gap:10px; }
+.analytics-filter .field { min-width:min(320px,70vw); }
+.location-map { width:100%; height:380px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+.location-map-empty { margin:10px 0 0; }
+.leaflet-container { font-family:Inter,"Segoe UI",system-ui,sans-serif; }
+.leaflet-popup-content-wrapper,.leaflet-popup-tip { color:var(--text); background:var(--surface); }
+.leaflet-control-attribution { color:#334155; }
 .table-wrap { overflow-x:auto; }
 table { width:100%; border-collapse:collapse; font-size:.92rem; }
 th,td { padding:11px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
@@ -197,6 +206,9 @@ tbody tr:hover { background:rgba(0,212,255,.05); }
   .truncate { max-width:180px; }
   .bar-row { grid-template-columns:minmax(70px,90px) 1fr auto; }
   .analytics-chart-card { min-height:250px; }
+  .analytics-filter { width:100%; align-items:stretch; flex-direction:column; }
+  .analytics-filter .field { min-width:0; }
+  .location-map { height:310px; }
   .column-chart { height:190px; gap:5px; }
   .column-fill { width:70%; }
   .profile-row { grid-template-columns:1fr; }
@@ -369,10 +381,53 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
           '<span class="column-label">' + escapeHtml(row.label) + '</span></div>';
       }).join('');
     }
+    let analyticsMap;
+    let locationLayer;
+    function renderLocationMap(locations) {
+      const empty = document.getElementById('location-map-empty');
+      if (!window.L) { empty.textContent = 'Map resources could not be loaded.'; return; }
+      if (!analyticsMap) {
+        analyticsMap = L.map('location-map', { worldCopyJump:true }).setView([20, 0], 2);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 12,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(analyticsMap);
+        locationLayer = L.layerGroup().addTo(analyticsMap);
+      }
+      locationLayer.clearLayers();
+      const bounds = [];
+      (locations || []).forEach((location) => {
+        const latitude = Number(location.latitude);
+        const longitude = Number(location.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+        const label = [location.city, location.region, location.country].filter(Boolean).map(escapeHtml).join(', ');
+        L.circleMarker([latitude, longitude], {
+          radius:Math.min(22, 6 + Math.sqrt(Number(location.count) || 1) * 2),
+          color:'#00d4ff', fillColor:'#10b981', fillOpacity:.65, weight:2
+        }).bindPopup('<strong>' + (label || 'Approximate location') + '</strong><br>' + escapeHtml(location.count || 0) + ' click(s)').addTo(locationLayer);
+        bounds.push([latitude, longitude]);
+      });
+      empty.textContent = bounds.length ? 'Locations are approximate and aggregated; visitor IP addresses are not stored.' : 'No location data recorded for this selection yet.';
+      if (bounds.length) analyticsMap.fitBounds(bounds, { padding:[30,30], maxZoom:5 });
+      else analyticsMap.setView([20, 0], 2);
+      setTimeout(() => analyticsMap.invalidateSize(), 0);
+    }
+    let analyticsLinksLoaded = false;
+    async function loadAnalyticsLinks() {
+      if (analyticsLinksLoaded) return;
+      const result = await apiRequest('/api/stats');
+      const select = document.getElementById('analytics-link-select');
+      select.innerHTML = '<option value="">All links</option>' + (result.links || []).map((link) =>
+        '<option value="' + escapeHtml(link.code) + '">' + escapeHtml(link.code) + '</option>'
+      ).join('');
+      analyticsLinksLoaded = true;
+    }
     async function loadAnalytics() {
       setPanelStatus('analytics-status', 'Loading statistics...');
       try {
-        const data = await apiRequest('/api/analytics');
+        await loadAnalyticsLinks();
+        const selectedCode = document.getElementById('analytics-link-select').value;
+        const data = await apiRequest('/api/analytics' + (selectedCode ? '?code=' + encodeURIComponent(selectedCode) : ''));
         document.getElementById('stat-links').textContent = data.totalLinks;
         document.getElementById('stat-redirects').textContent = data.totalRedirects;
         document.getElementById('stat-used').textContent = data.usedLinks;
@@ -386,12 +441,15 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
         renderBars('bars-os', breakdowns.os);
         renderBars('bars-devices', breakdowns.devices);
         renderBars('bars-referrers', breakdowns.referrers);
+        renderBars('bars-countries', breakdowns.countries);
         renderBars('bars-owners', breakdowns.owners);
+        renderLocationMap(breakdowns.locations);
         renderSimpleRows('recent-links-body', data.recentLinks || [], 'lastAccessedAt');
         setPanelStatus('analytics-status', 'Statistics updated (' + data.scope + ' scope, avg ' + data.averageRedirects + ' redirects per link).', 'success');
       } catch (error) { setPanelStatus('analytics-status', error.message, 'error'); }
     }
     document.getElementById('load-analytics').addEventListener('click', loadAnalytics);
+    document.getElementById('analytics-link-select').addEventListener('change', loadAnalytics);
     document.getElementById('password-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       setPanelStatus('password-status', 'Updating password...');

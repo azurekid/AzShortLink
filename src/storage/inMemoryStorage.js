@@ -214,7 +214,7 @@ class InMemoryStorage {
       ownerId,
       redirectCount: 0,
       lastAccessedAt: '',
-      agentStats: { browsers: {}, os: {}, devices: {}, referrers: {} }
+      agentStats: { browsers: {}, os: {}, devices: {}, referrers: {}, countries: {}, locations: {} }
     });
   }
 

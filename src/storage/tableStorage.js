@@ -12,7 +12,7 @@ const AUDIT_PARTITION_KEY = 'AUDIT';
 
 function parseAgentStats(value) {
   if (!value) {
-    return { browsers: {}, os: {}, devices: {}, referrers: {} };
+    return { browsers: {}, os: {}, devices: {}, referrers: {}, countries: {}, locations: {} };
   }
 
   try {
@@ -21,10 +21,12 @@ function parseAgentStats(value) {
       browsers: parsed.browsers || {},
       os: parsed.os || {},
       devices: parsed.devices || {},
-      referrers: parsed.referrers || {}
+      referrers: parsed.referrers || {},
+      countries: parsed.countries || {},
+      locations: parsed.locations || {}
     };
   } catch {
-    return { browsers: {}, os: {}, devices: {}, referrers: {} };
+    return { browsers: {}, os: {}, devices: {}, referrers: {}, countries: {}, locations: {} };
   }
 }
 

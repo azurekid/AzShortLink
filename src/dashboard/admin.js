@@ -79,7 +79,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     <section id="panel-analytics" class="tab-panel" role="tabpanel" hidden>
       <div class="content-grid">
         <section class="card span-full">
-          <div class="card-header"><h2><i class="fas fa-chart-bar"></i>Overview</h2><button id="load-analytics" class="button-secondary button-compact" type="button"><i class="fas fa-sync-alt"></i>Refresh</button></div>
+          <div class="card-header"><h2><i class="fas fa-chart-bar"></i>Overview</h2><div class="analytics-filter"><div class="field"><label for="analytics-link-select">Statistics for</label><select id="analytics-link-select"><option value="">All links</option></select></div><button id="load-analytics" class="button-secondary button-compact" type="button"><i class="fas fa-sync-alt"></i>Refresh</button></div></div>
           <div class="stat-grid">
             <div class="stat"><div class="stat-icon cyan"><i class="fas fa-link"></i></div><div><span class="stat-value" id="stat-links">-</span><span class="stat-label">Total links</span></div></div>
             <div class="stat"><div class="stat-icon purple"><i class="fas fa-eye"></i></div><div><span class="stat-value" id="stat-redirects">-</span><span class="stat-label">Total redirects</span></div></div>
@@ -100,6 +100,11 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           <div class="card-header"><h2><i class="fas fa-chart-column"></i>Redirects by top link</h2></div>
           <div id="columns-links" class="column-chart"><p>No redirect data yet.</p></div>
         </section>
+        <section class="card span-full">
+          <div class="card-header"><h2><i class="fas fa-earth-americas"></i>Click map</h2></div>
+          <div id="location-map" class="location-map" aria-label="Map of approximate click locations"></div>
+          <p id="location-map-empty" class="location-map-empty">No location data yet.</p>
+        </section>
         <section class="card">
           <div class="card-header"><h2><i class="fas fa-ranking-star"></i>Top links</h2></div>
           <div class="bar-list" id="bars-links"><p>No data yet.</p></div>
@@ -119,6 +124,10 @@ ${renderDocumentHead('AzShortLink Dashboard')}
         <section class="card">
           <div class="card-header"><h2><i class="fas fa-external-link-alt"></i>Referrers</h2></div>
           <div class="bar-list" id="bars-referrers"><p>No data yet.</p></div>
+        </section>
+        <section class="card">
+          <div class="card-header"><h2><i class="fas fa-flag"></i>Countries</h2></div>
+          <div class="bar-list" id="bars-countries"><p>No data yet.</p></div>
         </section>
         <section class="card">
           <div class="card-header"><h2><i class="fas fa-users"></i>Redirects by profile</h2></div>

@@ -60,7 +60,7 @@ sequenceDiagram
     Function-->>Client: 302 destination
 ```
 
-Redirect telemetry stores browser, OS, device, and referrer counters. Redirect visitor IP addresses are not persisted in link analytics.
+Redirect telemetry stores browser, OS, device, referrer, country, and approximate location counters. A bundled local GeoIP database resolves the Azure client IP during redirect handling, coordinates are rounded before storage, and redirect visitor IP addresses are not persisted in link analytics.
 
 ### QR download
 
@@ -150,7 +150,7 @@ Separate physical tables reduce accidental cross-disclosure between redirect dat
 
 ## Analytics
 
-The model provides totals, utilization, top and recent links, browsers, operating systems, device types, referrers, and administrator owner breakdowns. The UI renders cards, a donut, columns, proportional bars, and recent activity.
+The model provides totals, utilization, top and recent links, browsers, operating systems, device types, referrers, countries, approximate map locations, and administrator owner breakdowns. Analytics can cover every accessible link or one selected short link. The UI renders cards, a donut, columns, proportional bars, an OpenStreetMap-based marker map, and recent activity.
 
 No time-series chart is shown because storage contains cumulative counters rather than timestamped redirect events.
 

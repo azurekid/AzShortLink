@@ -42,7 +42,8 @@ AzShortLink is a self-hosted URL shortener built on Azure Functions. It combines
 ### Operations
 
 - Dashboard views for Links, Statistics, Account, Profiles, Invites, Operations, and Audit trail.
-- Visual statistics for utilization, links, browsers, operating systems, devices, referrers, and owners.
+- Visual statistics for utilization, links, browsers, operating systems, devices, referrers, countries, approximate click locations, and owners.
+- Aggregate statistics across accessible links or filter the dashboard and API to one short link.
 - Thirty-day security audit log with filters and CSV export.
 - Health endpoint and configurable process-local API throttling.
 - Styled Swagger UI and a complete OpenAPI 3.0 specification.
@@ -105,6 +106,8 @@ curl -X POST "https://azhk.in/api/shorten" \
 | `GET` | `/api/audit` | Administrator audit query |
 
 Use OpenAPI for the complete endpoint and schema reference.
+
+Pass `code=<short-code>` to `/api/analytics` to restrict statistics to one accessible link. Geographic analytics use a local IP database during redirect handling. Only aggregate country and approximate city/coordinate counters are stored with each link; redirect visitor IP addresses are not retained.
 
 ## Local Development
 

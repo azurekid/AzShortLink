@@ -12,6 +12,16 @@ function increment(counters, key) {
   return next;
 }
 
+function incrementLocation(locations, location) {
+  const next = { ...(locations || {}) };
+  if (!location || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) return next;
+
+  const key = `${location.latitude},${location.longitude}|${location.city}|${location.countryCode}`;
+  const previous = next[key] || {};
+  next[key] = { ...location, count: (Number(previous.count) || 0) + 1 };
+  return next;
+}
+
 function mergeCounters(target, source) {
   for (const [key, value] of Object.entries(source || {})) {
     target[key] = (target[key] || 0) + (Number(value) || 0);
@@ -25,6 +35,13 @@ function toSortedList(counters, limit = 8) {
     .map(([label, count]) => ({ label, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
+}
+
+function mergeLocations(target, source) {
+  for (const [key, location] of Object.entries(source || {})) {
+    const previous = target[key] || {};
+    target[key] = { ...location, count: (Number(previous.count) || 0) + (Number(location.count) || 0) };
+  }
 }
 
 function isValidHttpUrl(value) {
@@ -118,7 +135,9 @@ class ShortLinkService {
       browsers: increment(previous.browsers, agent.browser),
       os: increment(previous.os, agent.os),
       devices: increment(previous.devices, agent.device),
-      referrers: increment(previous.referrers, parseReferrer(meta.referrer))
+      referrers: increment(previous.referrers, parseReferrer(meta.referrer)),
+      countries: increment(previous.countries, meta.location?.country || 'Unknown'),
+      locations: incrementLocation(previous.locations, meta.location)
     };
 
     await this.storage.updateRedirectStats(normalizedCode, nextCount, lastAccessedAt, agentStats);
@@ -212,14 +231,28 @@ class ShortLinkService {
     return true;
   }
 
-  async getAnalytics(ownerId = '') {
-    const links = await this.storage.listLinks(1000, ownerId);
+  async getAnalytics(ownerId = '', code = '') {
+    const normalizedCode = normalizeAlias(code);
+    let links;
+    if (normalizedCode) {
+      const link = await this.storage.getLink(normalizedCode);
+      if (!link || (ownerId && link.ownerId !== ownerId)) {
+        const err = new Error('Short link not found.');
+        err.code = 'LINK_NOT_FOUND';
+        throw err;
+      }
+      links = [link];
+    } else {
+      links = await this.storage.listLinks(1000, ownerId);
+    }
     const totalRedirects = links.reduce((sum, link) => sum + (Number(link.redirectCount) || 0), 0);
     const withRedirects = links.filter((link) => (Number(link.redirectCount) || 0) > 0);
     const browsers = {};
     const os = {};
     const devices = {};
     const referrers = {};
+    const countries = {};
+    const locations = {};
     const owners = {};
 
     for (const link of links) {
@@ -228,6 +261,8 @@ class ShortLinkService {
       mergeCounters(os, stats.os);
       mergeCounters(devices, stats.devices);
       mergeCounters(referrers, stats.referrers);
+      mergeCounters(countries, stats.countries);
+      mergeLocations(locations, stats.locations);
       const owner = link.ownerId || 'unassigned';
       owners[owner] = (owners[owner] || 0) + (Number(link.redirectCount) || 0);
     }
@@ -247,6 +282,7 @@ class ShortLinkService {
       unusedLinks: links.length - withRedirects.length,
       averageRedirects: links.length ? Number((totalRedirects / links.length).toFixed(2)) : 0,
       mostViewed: topLinks.length && topLinks[0].redirectCount ? topLinks[0].code : '-',
+      selectedCode: normalizedCode,
       topLinks,
       recentLinks,
       breakdowns: {
@@ -254,6 +290,8 @@ class ShortLinkService {
         os: toSortedList(os),
         devices: toSortedList(devices),
         referrers: toSortedList(referrers),
+        countries: toSortedList(countries),
+        locations: Object.values(locations).sort((a, b) => b.count - a.count),
         owners: toSortedList(owners),
         links: topLinks.map((link) => ({ label: link.code, count: Number(link.redirectCount) || 0 }))
       }

@@ -121,6 +121,10 @@ test('exposes personal API key controls and graphical breakdowns', () => {
   assert.match(html, /id="bars-browsers"/);
   assert.match(html, /id="bars-devices"/);
   assert.match(html, /id="bars-referrers"/);
+  assert.match(html, /id="bars-countries"/);
   assert.match(html, /id="usage-donut"/);
   assert.match(html, /id="columns-links"/);
+  assert.match(html, /id="analytics-link-select"/);
+  assert.match(html, /id="location-map"/);
+  assert.match(html, /L\.circleMarker/);
 });

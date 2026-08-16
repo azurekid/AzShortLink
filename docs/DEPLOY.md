@@ -190,6 +190,8 @@ curl -o deployment-test-qr.png "$BASE_URL/api/links/deployment-test/qr" -H "x-ap
 
 Open the dashboard and verify Profiles, Invites, Operations, Audit trail, passkeys, and Swagger.
 
+Click geography is resolved locally with the GeoIP database installed by `npm ci`; no external geolocation API or key is required. Redeploy after dependency updates to refresh that database. The statistics map loads tiles from `tile.openstreetmap.org`, which must remain reachable from dashboard browsers.
+
 ## 8. Secret Rotation
 
 App settings use versionless Key Vault references:

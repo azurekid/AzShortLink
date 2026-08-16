@@ -91,4 +91,8 @@ test('renders visual statistics charts', () => {
   assert.match(html, /id="columns-links"/);
   assert.match(html, /renderUsageDonut/);
   assert.match(html, /renderColumns/);
+  assert.match(html, /id="analytics-link-select"/);
+  assert.match(html, /id="bars-countries"/);
+  assert.match(html, /id="location-map"/);
+  assert.match(html, /L\.circleMarker/);
 });

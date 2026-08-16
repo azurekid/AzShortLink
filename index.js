@@ -28,6 +28,7 @@ const { createRateLimiter } = require('./src/rateLimiter');
 const { buildOpenApiSpec } = require('./src/openApi');
 const { renderApiDocsPage } = require('./src/apiDocsPage');
 const { createQrCodePng } = require('./src/qrCode');
+const { lookupGeoLocation } = require('./src/geoLocation');
 const { DEFAULT_INVITE_POLICY, evaluateInviteEligibility, buildInviteAncestry } = require('./src/invitePolicy');
 const {
   EMAIL_PATTERN,
@@ -88,10 +89,10 @@ const SECURITY_HEADERS = {
   'referrer-policy': 'no-referrer',
   'content-security-policy': [
     "default-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com",
     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
-    "script-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https://azurehacking.com https://blackcatwebshop.z13.web.core.windows.net",
+    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "img-src 'self' data: https://azurehacking.com https://blackcatwebshop.z13.web.core.windows.net https://tile.openstreetmap.org",
     "connect-src 'self'"
   ].join('; ')
 };
@@ -348,7 +349,8 @@ registerHttp('redirectUrl', {
     try {
       result = await service.resolveShortLink(code, {
         userAgent: request.headers.get('user-agent'),
-        referrer: request.headers.get('referer') || request.headers.get('referrer')
+        referrer: request.headers.get('referer') || request.headers.get('referrer'),
+        location: lookupGeoLocation(getClientIp(request))
       });
     } catch (err) {
       if (isStorageUnavailableError(err)) {
@@ -533,9 +535,12 @@ registerHttp('getAnalytics', {
     const service = await servicePromise;
 
     try {
-      const analytics = await service.getAnalytics(resolveOwnerScope(request, identity));
+      const analytics = await service.getAnalytics(resolveOwnerScope(request, identity), request.query.get('code') || '');
       return { status: 200, jsonBody: { baseUrl: config.baseUrl, scope: identity.role === 'admin' ? 'all' : 'mine', ...analytics } };
     } catch (err) {
+      if (err.code === 'LINK_NOT_FOUND') {
+        return { status: 404, jsonBody: { error: err.message } };
+      }
       if (isStorageUnavailableError(err)) {
         return unavailableStorageResponse(err);
       }
@@ -650,7 +655,7 @@ const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 
 function getClientIp(request) {
-  return (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+  return request.headers.get('x-azure-clientip') || (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
 }
 
 // Separate trackers per endpoint so guessing invite codes can't lock a shared account out of

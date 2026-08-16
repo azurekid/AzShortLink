@@ -146,14 +146,15 @@ test('keeps usernames case-sensitive', async () => {
   assert.equal((await storage.listUsers()).length, 2);
 });
 
-test('records browser, os, device and referrer breakdowns on redirect', async () => {
+test('records browser, device, referrer and aggregate location breakdowns on redirect', async () => {
   const storage = new InMemoryStorage();
   const service = new ShortLinkService(storage, { baseUrl: 'https://azhk.in' });
 
   await service.createShortLink({ url: 'https://one.example', uniqueValue: 'link-one' }, 'user1');
   await service.resolveShortLink('link-one', {
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-    referrer: 'https://news.example/article'
+    referrer: 'https://news.example/article',
+    location: { countryCode: 'GB', country: 'United Kingdom', region: 'ENG', city: 'London', latitude: 51.5, longitude: -0.1 }
   });
   await service.resolveShortLink('link-one', {
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) AppleWebKit/605.1 Mobile Safari/604.1'
@@ -169,6 +170,25 @@ test('records browser, os, device and referrer breakdowns on redirect', async ()
   assert.deepEqual(labels(breakdowns.devices).sort(), ['desktop', 'mobile']);
   assert.ok(labels(breakdowns.referrers).includes('news.example'));
   assert.ok(labels(breakdowns.referrers).includes('direct'));
+  assert.ok(labels(breakdowns.countries).includes('United Kingdom'));
+  assert.deepEqual(breakdowns.locations[0], {
+    countryCode: 'GB', country: 'United Kingdom', region: 'ENG', city: 'London', latitude: 51.5, longitude: -0.1, count: 1
+  });
+});
+
+test('scopes analytics to one owned short link', async () => {
+  const storage = new InMemoryStorage();
+  const service = new ShortLinkService(storage, { baseUrl: 'https://azhk.in' });
+  await service.createShortLink({ url: 'https://one.example', uniqueValue: 'link-one' }, 'user1');
+  await service.createShortLink({ url: 'https://two.example', uniqueValue: 'link-two' }, 'user1');
+  await service.resolveShortLink('link-one');
+
+  const analytics = await service.getAnalytics('user1', 'link-one');
+
+  assert.equal(analytics.totalLinks, 1);
+  assert.equal(analytics.totalRedirects, 1);
+  assert.equal(analytics.selectedCode, 'link-one');
+  await assert.rejects(() => service.getAnalytics('user2', 'link-one'), { code: 'LINK_NOT_FOUND' });
 });
 
 test('issues personal API keys that resolve back to their owner', async () => {

@@ -57,7 +57,7 @@ function buildOpenApiSpec(baseUrl, options = {}) {
       },
       '/api/analytics': {
         get: operation('Get aggregate redirect analytics', 'Analytics', {
-          parameters: [scopeParameter()],
+          parameters: [scopeParameter(), { name: 'code', in: 'query', description: 'Restrict analytics to one accessible short link.', schema: { type: 'string' } }],
           responses: { 200: jsonResponse('AnalyticsResponse'), 401: errorResponse() }
         })
       },
