@@ -23,7 +23,7 @@ const {
   API_KEY_PREFIX,
   timingSafeEqualString
 } = require('./src/auth/auth');
-const { ACTIONS, AUDIT_RETENTION_DAYS, formatAuditEvent, recordAuditEvent } = require('./src/core/audit');
+const { ACTIONS, AUDIT_RETENTION_DAYS, createAuditWriteLimiter, formatAuditEvent, recordAuditEvent } = require('./src/core/audit');
 const { createRateLimiter } = require('./src/core/rateLimiter');
 const { buildOpenApiSpec } = require('./src/api/openApi');
 const { renderApiDocsPage } = require('./src/pages/apiDocsPage');
@@ -736,6 +736,34 @@ function createAttemptThrottle(maxAttempts = LOGIN_MAX_ATTEMPTS, lockoutMs = LOG
 const loginThrottle = createAttemptThrottle();
 // Invite codes are bearer tokens for account creation, so guessing them is throttled too.
 const signupThrottle = createAttemptThrottle();
+// Audit writes have their own budget so repeated anonymous failures cannot fill the table.
+// This budget intentionally does not reset after a successful signup.
+const signupAuditLimiter = createAuditWriteLimiter({ maxEvents: LOGIN_MAX_ATTEMPTS, windowMs: LOGIN_LOCKOUT_MS });
+
+function safeSignupUserName(value) {
+  const candidate = String(value || '').trim();
+  return /^[A-Za-z0-9._-]{3,64}$/.test(candidate) ? candidate : (candidate ? 'invalid' : 'unknown');
+}
+
+function safeInviteCode(value) {
+  const candidate = String(value || '').trim();
+  return /^[A-Za-z0-9_-]{4,32}$/.test(candidate) ? candidate : '';
+}
+
+async function recordSignupFailure(storage, request, { userName = '', inviteCode = '', reason, details = {} }) {
+  const sourceIp = getClientIp(request);
+  if (!signupAuditLimiter.shouldRecord(sourceIp)) return false;
+
+  const safeUserName = safeSignupUserName(userName);
+  const safeCode = safeInviteCode(inviteCode);
+  await recordAuditEvent(storage, {
+    action: ACTIONS.SIGNUP_FAILED,
+    actorUsername: safeUserName,
+    ...buildAuditContext(request, { outcome: 'failure' }),
+    details: { ...details, userName: safeUserName, ...(safeCode ? { inviteCode: safeCode } : {}), reason }
+  });
+  return true;
+}
 
 registerHttp('dashboardLoginPage', {
   methods: ['GET'],
@@ -1007,11 +1035,7 @@ registerHttp('dashboardSignupSubmit', {
     const ip = getClientIp(request);
     if (signupThrottle.isLockedOut(ip)) {
       const storage = await storagePromise;
-      await recordAuditEvent(storage, {
-        action: ACTIONS.SIGNUP_FAILED,
-        ...buildAuditContext(request, { outcome: 'failure' }),
-        details: { userName: 'unknown', reason: 'rate_limited' }
-      });
+      await recordSignupFailure(storage, request, { reason: 'rate_limited' });
       return {
         status: 429,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1044,11 +1068,7 @@ registerHttp('dashboardSignupSubmit', {
       }
     } catch {
       const storage = await storagePromise;
-      await recordAuditEvent(storage, {
-        action: ACTIONS.SIGNUP_FAILED,
-        ...buildAuditContext(request, { outcome: 'failure' }),
-        details: { userName: username || 'unknown', inviteCode, reason: 'invalid_request_body' }
-      });
+      await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'invalid_request_body' });
       return {
         status: 400,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1074,12 +1094,7 @@ registerHttp('dashboardSignupSubmit', {
 
     if (!invite || invite.redeemed) {
       signupThrottle.recordFailedAttempt(ip);
-      await recordAuditEvent(storage, {
-        action: ACTIONS.SIGNUP_FAILED,
-        actorUsername: username || 'unknown',
-        ...buildAuditContext(request, { outcome: 'failure' }),
-        details: { userName: username || 'unknown', inviteCode, reason: invite ? 'invite_redeemed' : 'invite_not_found' }
-      });
+      await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: invite ? 'invite_redeemed' : 'invite_not_found' });
       return {
         status: invite ? 410 : 404,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1091,12 +1106,7 @@ registerHttp('dashboardSignupSubmit', {
 
     if (!/^[A-Za-z0-9._-]{3,64}$/.test(username) || !displayName || !EMAIL_PATTERN.test(email) || password.length < 12) {
       signupThrottle.recordFailedAttempt(ip);
-      await recordAuditEvent(storage, {
-        action: ACTIONS.SIGNUP_FAILED,
-        actorUsername: username || 'unknown',
-        ...buildAuditContext(request, { outcome: 'failure' }),
-        details: { userName: username || 'unknown', inviteCode, reason: 'invalid_profile_input' }
-      });
+      await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'invalid_profile_input' });
       return {
         status: 400,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1112,12 +1122,7 @@ registerHttp('dashboardSignupSubmit', {
       const emailHash = hashIdentityValue(email, config.identityHashSecret);
       if (await storage.getUserByEmailHash(emailHash)) {
         signupThrottle.recordFailedAttempt(ip);
-        await recordAuditEvent(storage, {
-          action: ACTIONS.SIGNUP_FAILED,
-          actorUsername: username,
-          ...buildAuditContext(request, { outcome: 'failure' }),
-          details: { userName: username, inviteCode, reason: 'identity_already_registered' }
-        });
+        await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'identity_already_registered' });
         return {
           status: 409,
           headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1127,12 +1132,8 @@ registerHttp('dashboardSignupSubmit', {
 
       const sponsor = await storage.getUser(invite.createdBy);
       if (!sponsor || sponsor.status === 'suspended' || sponsor.branchSuspended) {
-        await recordAuditEvent(storage, {
-          action: ACTIONS.SIGNUP_FAILED,
-          actorUsername: username,
-          ...buildAuditContext(request, { outcome: 'failure' }),
-          details: { userName: username, inviteCode, sponsorUserName: invite.createdBy, reason: 'sponsor_unavailable' }
-        });
+        signupThrottle.recordFailedAttempt(ip);
+        await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'sponsor_unavailable', details: { sponsorUserName: invite.createdBy } });
         return {
           status: 403,
           headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1142,11 +1143,12 @@ registerHttp('dashboardSignupSubmit', {
 
       const ancestry = buildInviteAncestry(sponsor);
       if (ancestry.inviteDepth > DEFAULT_INVITE_POLICY.maximumDepth) {
-        await recordAuditEvent(storage, {
-          action: ACTIONS.SIGNUP_FAILED,
-          actorUsername: username,
-          ...buildAuditContext(request, { outcome: 'failure' }),
-          details: { userName: username, inviteCode, sponsorUserName: sponsor.username, inviteDepth: ancestry.inviteDepth, reason: 'maximum_invite_depth' }
+        signupThrottle.recordFailedAttempt(ip);
+        await recordSignupFailure(storage, request, {
+          userName: username,
+          inviteCode,
+          reason: 'maximum_invite_depth',
+          details: { sponsorUserName: sponsor.username, inviteDepth: ancestry.inviteDepth }
         });
         return {
           status: 403,
@@ -1190,6 +1192,8 @@ registerHttp('dashboardSignupSubmit', {
       if (!redeemed) {
         // Lost a race with another signup using the same invite; undo the just-created account.
         await storage.deleteUser(user.id);
+        signupThrottle.recordFailedAttempt(ip);
+        await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'invite_redemption_race' });
         return {
           status: 409,
           headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1203,7 +1207,7 @@ registerHttp('dashboardSignupSubmit', {
       signupThrottle.clearAttempts(ip);
 
       await recordAuditEvent(storage, {
-        action: ACTIONS.USER_CREATED,
+        action: ACTIONS.SIGNUP_SUCCESS,
         actorId: user.id,
         actorUsername: user.username,
         actorRole: user.role,
@@ -1231,12 +1235,7 @@ registerHttp('dashboardSignupSubmit', {
     } catch (err) {
       if (err.code === 'USER_EXISTS') {
         signupThrottle.recordFailedAttempt(ip);
-        await recordAuditEvent(storage, {
-          action: ACTIONS.SIGNUP_FAILED,
-          actorUsername: username,
-          ...buildAuditContext(request, { outcome: 'failure' }),
-          details: { userName: username, inviteCode, reason: 'user_name_exists' }
-        });
+        await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'user_name_exists' });
         return {
           status: 409,
           headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
@@ -1246,6 +1245,19 @@ registerHttp('dashboardSignupSubmit', {
       if (isStorageUnavailableError(err)) {
         return unavailableStorageResponse(err);
       }
+      if (err.code === 'EMAIL_NOT_CONFIGURED' || err.code === 'EMAIL_DELIVERY_FAILED') {
+        await recordSignupFailure(storage, request, {
+          userName: username,
+          inviteCode,
+          reason: err.code === 'EMAIL_NOT_CONFIGURED' ? 'email_not_configured' : 'email_delivery_failed'
+        });
+        return {
+          status: 503,
+          headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+          body: renderSignupPage({ invite: inviteCode, error: 'Account verification email is unavailable. Contact the administrator.' })
+        };
+      }
+      await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'internal_error' });
       return {
         status: 500,
         headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },

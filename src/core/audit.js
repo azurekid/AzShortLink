@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const AUDIT_RETENTION_DAYS = 30;
 const AUDIT_RETENTION_MS = AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const AUDIT_SCHEMA_VERSION = 1;
+const MAX_DETAIL_KEYS = 20;
 let lastAuditTimestampMs = 0;
 
 const ACTIONS = Object.freeze({
@@ -14,6 +15,7 @@ const ACTIONS = Object.freeze({
   LINK_CREATED: 'LINK_CREATED',
   LINK_DELETED: 'LINK_DELETED',
   LINK_DELETE_DENIED: 'LINK_DELETE_DENIED',
+  SIGNUP_SUCCESS: 'SIGNUP_SUCCESS',
   SIGNUP_FAILED: 'SIGNUP_FAILED',
   USER_CREATED: 'USER_CREATED',
   USER_DELETED: 'USER_DELETED',
@@ -35,6 +37,41 @@ function retentionCutoffIso(now = Date.now()) {
   return new Date(now - AUDIT_RETENTION_MS).toISOString();
 }
 
+function createAuditWriteLimiter({ maxEvents = 5, windowMs = 15 * 60 * 1000, now = Date.now } = {}) {
+  const windows = new Map();
+  return {
+    shouldRecord(key) {
+      const currentTime = now();
+      const current = windows.get(key);
+      if (!current || currentTime - current.startedAt >= windowMs) {
+        windows.set(key, { count: 1, startedAt: currentTime });
+        return true;
+      }
+      if (current.count >= maxEvents) return false;
+      current.count += 1;
+      return true;
+    }
+  };
+}
+
+function sanitizeString(value, maxLength = 256) {
+  return String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, maxLength);
+}
+
+function sanitizeDetailValue(value, depth = 0) {
+  if (typeof value === 'string') return sanitizeString(value);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'boolean' || value === null) return value;
+  if (depth >= 2) return sanitizeString(value);
+  if (Array.isArray(value)) return value.slice(0, 10).map((item) => sanitizeDetailValue(item, depth + 1));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).slice(0, MAX_DETAIL_KEYS).map(([key, item]) => [
+      sanitizeString(key, 64), sanitizeDetailValue(item, depth + 1)
+    ]));
+  }
+  return sanitizeString(value);
+}
+
 function getEventCategory(action) {
   if (action.startsWith('LOGIN_') || action === ACTIONS.LOGOUT || action.startsWith('PASSKEY_') || action.includes('PASSWORD') || action === ACTIONS.API_KEY_ROTATED) return 'authentication';
   if (action.startsWith('USER_') || action.startsWith('SIGNUP_') || action === ACTIONS.BRANCH_SUSPENSION_CHANGED || action === ACTIONS.EMAIL_VERIFIED) return 'identity';
@@ -44,7 +81,7 @@ function getEventCategory(action) {
 }
 
 function normalizeAuditDetails(action, details = {}) {
-  const normalized = { ...(details || {}) };
+  const normalized = sanitizeDetailValue(details || {});
   const userName = normalized.userName || normalized.targetUsername || normalized.createdUsername || normalized.deletedUsername || normalized.username;
   if (userName) normalized.userName = userName;
   delete normalized.targetUsername;
@@ -127,23 +164,23 @@ async function recordAuditEvent(storage, {
       schemaVersion: AUDIT_SCHEMA_VERSION,
       eventId: crypto.randomUUID(),
       timestamp: new Date(timestampMs).toISOString(),
-      action,
+      action: sanitizeString(action, 64),
       category: getEventCategory(action),
-      actorId,
-      actorUsername,
-      actorRole,
-      ip: sourceIp,
-      sourceIp,
-      userAgent,
-      channel,
-      authenticationMethod,
-      httpMethod,
-      requestPath,
-      outcome,
-      sourceCountry: location.country || '',
-      sourceCountryCode: location.countryCode || '',
-      sourceRegion: location.region || '',
-      sourceCity: location.city || '',
+      actorId: sanitizeString(actorId, 128),
+      actorUsername: sanitizeString(actorUsername, 128),
+      actorRole: sanitizeString(actorRole, 32),
+      ip: sanitizeString(sourceIp, 64),
+      sourceIp: sanitizeString(sourceIp, 64),
+      userAgent: sanitizeString(userAgent, 512),
+      channel: sanitizeString(channel, 32),
+      authenticationMethod: sanitizeString(authenticationMethod, 64),
+      httpMethod: sanitizeString(httpMethod, 16),
+      requestPath: sanitizeString(requestPath, 512),
+      outcome: sanitizeString(outcome, 32),
+      sourceCountry: sanitizeString(location.country || '', 128),
+      sourceCountryCode: sanitizeString(location.countryCode || '', 2),
+      sourceRegion: sanitizeString(location.region || '', 128),
+      sourceCity: sanitizeString(location.city || '', 128),
       sourceLatitude: Number.isFinite(location.latitude) ? location.latitude : null,
       sourceLongitude: Number.isFinite(location.longitude) ? location.longitude : null,
       details: JSON.stringify(normalizeAuditDetails(action, details))
@@ -162,8 +199,10 @@ module.exports = {
   ACTIONS,
   AUDIT_SCHEMA_VERSION,
   AUDIT_RETENTION_DAYS,
+  createAuditWriteLimiter,
   formatAuditEvent,
   normalizeAuditDetails,
+  sanitizeString,
   retentionCutoffIso,
   recordAuditEvent,
   generateAuditRowKey

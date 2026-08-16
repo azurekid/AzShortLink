@@ -150,6 +150,10 @@ Audit records use a versioned SIEM-oriented schema. Every event includes a UUID 
 
 Password and passkey authentication records include both successes and failures. Failure reasons distinguish invalid credentials, rate limiting, malformed requests, unknown credentials, inactive users, and verification failures. Passkey registration records include the user, credential ID, device type, backup state, and transports. Passwords, session tokens, passkey public keys, complete API keys, and email addresses are never written to audit events.
 
+Self-service account creation emits `SIGNUP_SUCCESS`; rejected submissions emit `SIGNUP_FAILED` with a fixed application-defined reason. Anonymous callers cannot choose the audit action or arbitrary detail keys. Usernames and invite codes are accepted into these events only when they match their canonical syntax, all strings and detail collections are bounded, control characters are removed, and at most five signup failure rows per source are written in a 15-minute process window. Requests arriving after signup lockout do not create additional rows. Successful signup does not reset the audit budget.
+
+Audit entities are append-only in application code and there is no public audit-write route. Azure RBAC must restrict direct table access to the Function identity and authorized operators. The anonymous write budget is process-local, so production deployments that scale out should also enforce a global request limit at Front Door, Application Gateway WAF, or API Management.
+
 `GET /api/audit` supports incremental time filtering and filters for action, actor, channel, outcome, authentication method, and source country code. The dashboard presents the enriched fields and exports the complete schema as CSV for SIEM ingestion.
 
 Separate physical tables reduce accidental cross-disclosure between redirect data, credentials, and audit history.
@@ -176,6 +180,7 @@ Public URL, sender address, table names, and rate-limit values remain normal set
 - Keyed identity and risk hashes.
 - Current-state authorization.
 - API and login throttles.
+- Bounded and sanitized anonymous signup audit telemetry.
 - Versioned, enriched audit events excluding passwords, tokens, passkey public keys, and full API keys.
 - Key Vault RBAC, soft delete, and purge protection.
 

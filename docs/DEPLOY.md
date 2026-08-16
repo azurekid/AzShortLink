@@ -190,6 +190,8 @@ curl -o deployment-test-qr.png "$BASE_URL/api/links/deployment-test/qr" -H "x-ap
 
 Open the dashboard and verify Profiles, Invites, Operations, Audit trail, passkeys, and Swagger.
 
+If invited signup returns `Account verification email is unavailable`, verify that both `COMMUNICATION_SERVICES_CONNECTION_STRING` and `EMAIL_SENDER_ADDRESS` are populated in the Function App, that the sender domain/address is verified in Communication Services Email, and that the Function App was restarted after changing settings. Signup URLs must come from an issued invite and include `?invite=<code>`; opening `/dashboard/signup` directly is not a valid registration link.
+
 Click geography is resolved locally with the GeoIP database installed by `npm ci`; no external geolocation API or key is required. Redeploy after dependency updates to refresh that database. The statistics map loads tiles from `tile.openstreetmap.org`, which must remain reachable from dashboard browsers.
 
 ## 8. Secret Rotation

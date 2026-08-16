@@ -251,6 +251,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
                 <option value="LINK_CREATED">Link created</option>
                 <option value="LINK_DELETED">Link deleted</option>
                 <option value="LINK_DELETE_DENIED">Link delete denied</option>
+                <option value="SIGNUP_SUCCESS">Signup success</option>
                 <option value="SIGNUP_FAILED">Signup failed</option>
                 <option value="USER_CREATED">User created</option>
                 <option value="USER_DELETED">User deleted</option>

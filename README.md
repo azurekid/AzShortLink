@@ -44,7 +44,7 @@ AzShortLink is a self-hosted URL shortener built on Azure Functions. It combines
 - Dashboard views for Links, Statistics, Account, Profiles, Invites, Operations, and Audit trail.
 - Visual statistics for utilization, links, browsers, operating systems, devices, referrers, countries, approximate click locations, and owners.
 - Aggregate statistics across accessible links or filter the dashboard and API to one short link.
-- Thirty-day SIEM-oriented security audit log with actor, channel, authentication, request, user-agent, source geography, outcome, filters, and CSV export.
+- Thirty-day SIEM-oriented security audit log with explicit signup success/failure events, bounded anonymous telemetry, actor, channel, authentication, request, user-agent, source geography, outcome, filters, and CSV export.
 - Health endpoint and configurable process-local API throttling.
 - Styled Swagger UI and a complete OpenAPI 3.0 specification.
 

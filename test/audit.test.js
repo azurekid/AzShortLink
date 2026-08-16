@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { InMemoryStorage } = require('../src/storage/inMemoryStorage');
-const { ACTIONS, AUDIT_SCHEMA_VERSION, AUDIT_RETENTION_DAYS, formatAuditEvent, recordAuditEvent } = require('../src/core/audit');
+const { ACTIONS, AUDIT_SCHEMA_VERSION, AUDIT_RETENTION_DAYS, createAuditWriteLimiter, formatAuditEvent, recordAuditEvent } = require('../src/core/audit');
 
 test('records and lists audit events newest first', async () => {
   const storage = new InMemoryStorage();
@@ -94,6 +94,38 @@ test('formats the complete public SIEM event contract', () => {
   assert.equal(event.source.countryCode, 'US');
   assert.equal(event.sourceIp, '203.0.113.5');
   assert.deepEqual(event.details, { userName: 'Alice', credentialId: 'credential-1' });
+});
+
+test('bounds and sanitizes untrusted audit fields', async () => {
+  const storage = new InMemoryStorage();
+  const oversizedDetails = Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`field${index}`, 'x'.repeat(400)]));
+
+  await recordAuditEvent(storage, {
+    action: ACTIONS.SIGNUP_FAILED,
+    actorUsername: `attacker\n${'x'.repeat(200)}`,
+    userAgent: 'u'.repeat(1000),
+    details: oversizedDetails
+  });
+
+  const [event] = await storage.listAuditEvents({ limit: 1 });
+  const details = JSON.parse(event.details);
+  assert.equal(event.actorUsername.includes('\n'), false);
+  assert.equal(event.actorUsername.length, 128);
+  assert.equal(event.userAgent.length, 512);
+  assert.equal(Object.keys(details).length, 20);
+  assert.equal(details.field0.length, 256);
+});
+
+test('limits anonymous audit writes per source and resets after the window', () => {
+  let now = 1000;
+  const limiter = createAuditWriteLimiter({ maxEvents: 2, windowMs: 100, now: () => now });
+
+  assert.equal(limiter.shouldRecord('203.0.113.5'), true);
+  assert.equal(limiter.shouldRecord('203.0.113.5'), true);
+  assert.equal(limiter.shouldRecord('203.0.113.5'), false);
+  assert.equal(limiter.shouldRecord('198.51.100.8'), true);
+  now += 100;
+  assert.equal(limiter.shouldRecord('203.0.113.5'), true);
 });
 
 test('excludes audit events older than the retention window', async () => {
