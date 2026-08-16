@@ -208,18 +208,28 @@ ${renderDocumentHead('AzShortLink Dashboard')}
         const data = await apiRequest('/api/help');
         const requests = data.requests || [];
         if (!requests.length) { container.innerHTML = '<p>No help requests yet.</p>'; return; }
-        container.innerHTML = requests.map((item) => '<article class="result"><div class="card-header"><strong>' + escapeHtml(item.subject) + '</strong><span class="pill ' + (item.status === 'answered' ? 'up' : '') + '">' + escapeHtml(item.status) + '</span></div>' +
+        container.innerHTML = requests.map((item) => '<article class="result"><div class="card-header"><div><strong>' + escapeHtml(item.subject) + '</strong><p class="mono">Ticket ' + escapeHtml(item.ticketNumber) + '</p></div><span class="pill ' + (item.status === 'answered' ? 'up' : '') + '">' + escapeHtml(item.status) + '</span></div>' +
           '<p>' + escapeHtml(item.message) + '</p><p class="mono">Sent ' + escapeHtml(item.createdAt) + '</p>' +
-          (item.response ? '<div class="status success"><strong>Administrator response</strong><p>' + escapeHtml(item.response) + '</p><span class="mono">' + escapeHtml(item.respondedAt) + '</span></div>' : '<p>Awaiting an administrator response.</p>') + '</article>').join('');
+          (item.response ? '<div class="status success"><strong>Administrator response</strong><p>' + escapeHtml(item.response) + '</p><span class="mono">' + escapeHtml(item.respondedAt) + '</span></div>' : '<p>Awaiting an administrator response.</p>') +
+          (item.status === 'closed' ? '<p class="mono">Closed ' + escapeHtml(item.closedAt || '') + '</p>' : '<button class="button-secondary button-compact" type="button" data-close-help="' + escapeHtml(item.id) + '">Close request</button>') + '</article>').join('');
       } catch (error) { container.innerHTML = '<p class="status error">' + escapeHtml(error.message) + '</p>'; }
     }
     document.getElementById('load-help').addEventListener('click', loadHelpRequests);
+    document.getElementById('help-requests').addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-close-help]');
+      if (!button || !window.confirm('Close this help request?')) return;
+      try {
+        await apiRequest('/api/help/' + encodeURIComponent(button.dataset.closeHelp), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'closed' }) });
+        await loadHelpRequests();
+      } catch (error) { setPanelStatus('help-status', error.message, 'error'); }
+    });
     document.getElementById('help-form').addEventListener('submit', async (event) => {
       event.preventDefault();
+      const form = event.currentTarget;
       setPanelStatus('help-status', 'Sending request...');
       try {
         await apiRequest('/api/help', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subject: document.getElementById('help-subject').value, message: document.getElementById('help-message').value }) });
-        event.currentTarget.reset();
+        form.reset();
         setPanelStatus('help-status', 'Help request sent.', 'success');
         await loadHelpRequests();
       } catch (error) { setPanelStatus('help-status', error.message, 'error'); }

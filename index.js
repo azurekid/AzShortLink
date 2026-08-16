@@ -1922,6 +1922,37 @@ registerHttp('adminHelpRequests', {
   }
 });
 
+registerHttp('closeHelpRequest', {
+  methods: ['PATCH'],
+  authLevel: 'anonymous',
+  route: 'api/help/{id}',
+  handler: async (request) => {
+    const identity = await resolveSessionIdentity(request);
+    if (!identity) return unauthorizedResponse();
+
+    const payload = await request.json().catch(() => ({}));
+    if (payload.status !== 'closed') {
+      return { status: 400, jsonBody: { error: 'Users can only close help requests.' } };
+    }
+
+    try {
+      const storage = await storagePromise;
+      const helpRequest = await storage.setHelpRequestStatus(request.params.id, {
+        userId: identity.id,
+        status: 'closed',
+        changedAt: new Date().toISOString(),
+        changedBy: identity.username
+      });
+      return helpRequest
+        ? { status: 200, jsonBody: helpRequest }
+        : { status: 404, jsonBody: { error: 'Help request not found.' } };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
+      return { status: 500, jsonBody: { error: 'Unable to close the help request.' } };
+    }
+  }
+});
+
 registerHttp('respondToHelpRequest', {
   methods: ['PATCH'],
   authLevel: 'anonymous',
@@ -1931,18 +1962,19 @@ registerHttp('respondToHelpRequest', {
     if (!identity || identity.role !== 'admin') return unauthorizedResponse();
 
     const payload = await request.json().catch(() => ({}));
-    const response = typeof payload.response === 'string' ? payload.response.trim() : '';
-    if (!response || response.length > 4000) {
-      return { status: 400, jsonBody: { error: 'Response must be 1-4000 characters.' } };
+    const hasResponse = typeof payload.response === 'string';
+    const response = hasResponse ? payload.response.trim() : '';
+    const status = payload.status === 'closed' || payload.status === 'open' || payload.status === 'answered' ? payload.status : '';
+    if ((!hasResponse && !status) || (hasResponse && (!response || response.length > 4000))) {
+      return { status: 400, jsonBody: { error: 'Provide a 1-4000 character response or a valid status.' } };
     }
 
     try {
       const storage = await storagePromise;
-      const helpRequest = await storage.respondToHelpRequest(request.params.id, {
-        response,
-        respondedAt: new Date().toISOString(),
-        respondedBy: identity.username
-      });
+      const changedAt = new Date().toISOString();
+      const helpRequest = hasResponse
+        ? await storage.respondToHelpRequest(request.params.id, { response, respondedAt: changedAt, respondedBy: identity.username })
+        : await storage.setHelpRequestStatus(request.params.id, { status, changedAt, changedBy: identity.username });
       return helpRequest
         ? { status: 200, jsonBody: helpRequest }
         : { status: 404, jsonBody: { error: 'Help request not found.' } };

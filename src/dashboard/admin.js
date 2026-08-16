@@ -315,14 +315,23 @@ ${renderDocumentHead('AzShortLink Dashboard')}
         const data = await apiRequest('/api/admin/help');
         const requests = data.requests || [];
         if (!requests.length) { container.innerHTML = '<p>No help requests found.</p>'; setPanelStatus('help-status', 'No requests.', 'success'); return; }
-        container.innerHTML = requests.map((item) => '<article class="result"><div class="card-header"><div><strong>' + escapeHtml(item.subject) + '</strong><p class="mono">' + escapeHtml(item.username) + ' / ' + escapeHtml(item.createdAt) + '</p></div><span class="pill ' + (item.status === 'answered' ? 'up' : '') + '">' + escapeHtml(item.status) + '</span></div>' +
+        container.innerHTML = requests.map((item) => '<article class="result"><div class="card-header"><div><strong>' + escapeHtml(item.subject) + '</strong><p class="mono">Ticket ' + escapeHtml(item.ticketNumber) + ' / ' + escapeHtml(item.username) + ' / ' + escapeHtml(item.createdAt) + '</p></div><span class="pill ' + (item.status === 'answered' ? 'up' : '') + '">' + escapeHtml(item.status) + '</span></div>' +
           '<p>' + escapeHtml(item.message) + '</p>' +
           (item.response ? '<div class="status success"><strong>Response from ' + escapeHtml(item.respondedBy) + '</strong><p>' + escapeHtml(item.response) + '</p></div>' : '') +
-          '<form class="stack help-response-form" data-help-id="' + escapeHtml(item.id) + '"><div class="field"><label>Response</label><textarea maxlength="4000" rows="5" required>' + escapeHtml(item.response || '') + '</textarea></div><button type="submit">' + (item.response ? 'Update response' : 'Send response') + '</button></form></article>').join('');
+          '<form class="stack help-response-form" data-help-id="' + escapeHtml(item.id) + '"><div class="field"><label>Response</label><textarea maxlength="4000" rows="5" required>' + escapeHtml(item.response || '') + '</textarea></div><div class="actions"><button type="submit">' + (item.response ? 'Update response' : 'Send response') + '</button>' +
+          (item.status === 'closed' ? '<button class="button-secondary" type="button" data-help-status="open" data-help-id="' + escapeHtml(item.id) + '">Reopen</button>' : '<button class="button-secondary" type="button" data-help-status="closed" data-help-id="' + escapeHtml(item.id) + '">Close</button>') + '</div></form></article>').join('');
         setPanelStatus('help-status', 'Loaded ' + requests.length + ' request(s).', 'success');
       } catch (error) { container.innerHTML = '<p class="status error">' + escapeHtml(error.message) + '</p>'; setPanelStatus('help-status', error.message, 'error'); }
     }
     document.getElementById('load-help').addEventListener('click', loadHelpRequests);
+    document.getElementById('help-requests').addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-help-status]');
+      if (!button) return;
+      try {
+        await apiRequest('/api/admin/help/' + encodeURIComponent(button.dataset.helpId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: button.dataset.helpStatus }) });
+        await loadHelpRequests();
+      } catch (error) { setPanelStatus('help-status', error.message, 'error'); }
+    });
     document.getElementById('help-requests').addEventListener('submit', async (event) => {
       const form = event.target.closest('.help-response-form');
       if (!form) return;

@@ -50,6 +50,10 @@ test('provides a help tab for submitting requests and viewing responses', () => 
   assert.match(html, /id="help-requests"/);
   assert.match(html, /apiRequest\('\/api\/help'/);
   assert.match(html, /Administrator response/);
+  assert.match(html, /Ticket ' \+ escapeHtml\(item\.ticketNumber\)/);
+  assert.match(html, /data-close-help/);
+  assert.match(html, /const form = event\.currentTarget;[\s\S]*form\.reset\(\)/);
+  assert.doesNotMatch(html, /event\.currentTarget\.reset/);
   assert.doesNotMatch(html, /api\/admin\/help/);
 });
 

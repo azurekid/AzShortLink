@@ -202,7 +202,7 @@ class InMemoryStorage {
   }
 
   async createHelpRequest({ id, userId, username, subject, message, createdAt }) {
-    const request = { id, userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '' };
+    const request = { id, ticketNumber: `AZSL-${id.toUpperCase()}`, userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '', closedAt: '', closedBy: '' };
     this.helpRequests.set(id, request);
     return { ...request };
   }
@@ -218,6 +218,19 @@ class InMemoryStorage {
     const request = this.helpRequests.get(String(id).trim());
     if (!request) return null;
     const updated = { ...request, response, respondedAt, respondedBy, status: 'answered' };
+    this.helpRequests.set(request.id, updated);
+    return { ...updated };
+  }
+
+  async setHelpRequestStatus(id, { userId = '', status, changedAt, changedBy }) {
+    const request = this.helpRequests.get(String(id).trim());
+    if (!request || (userId && request.userId !== userId)) return null;
+    const updated = {
+      ...request,
+      status,
+      closedAt: status === 'closed' ? changedAt : '',
+      closedBy: status === 'closed' ? changedBy : ''
+    };
     this.helpRequests.set(request.id, updated);
     return { ...updated };
   }

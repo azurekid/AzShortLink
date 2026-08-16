@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 
 const { TableStorage } = require('../src/storage/tableStorage');
 
-function makeFakeClient({ entities = [] } = {}) {
+function makeFakeClient({ entities = [], onDelete } = {}) {
   const created = [];
   const deleted = [];
   const updated = [];
@@ -40,6 +40,7 @@ function makeFakeClient({ entities = [] } = {}) {
     },
     async deleteEntity(partitionKey, rowKey) {
       deleted.push({ partitionKey, rowKey });
+      if (onDelete) await onDelete(partitionKey, rowKey);
     },
     async getAccessPolicy() {
       return {};
@@ -90,6 +91,7 @@ test('stores, filters and responds to help requests in the users table', async (
   });
 
   assert.equal(created.status, 'open');
+  assert.equal(created.ticketNumber, 'AZSL-REQUEST-1');
   assert.equal(usersClient.created[0].partitionKey, 'HELP');
   assert.deepEqual((await storage.listHelpRequests('alice')).map((request) => request.id), ['request-1']);
   assert.match(usersClient.filters.at(-1), /userId eq 'alice'/);
@@ -103,6 +105,15 @@ test('stores, filters and responds to help requests in the users table', async (
   assert.equal(answered.status, 'answered');
   assert.equal(answered.respondedBy, 'admin');
   assert.equal(answered.response, 'Your account must be at least seven days old.');
+
+  const closed = await storage.setHelpRequestStatus('request-1', {
+    userId: 'alice',
+    status: 'closed',
+    changedAt: '2026-01-03T00:00:00.000Z',
+    changedBy: 'Alice'
+  });
+  assert.equal(closed.status, 'closed');
+  assert.equal(closed.closedBy, 'Alice');
 });
 
 test('returns null when responding to an unknown help request', async () => {
@@ -113,6 +124,45 @@ test('returns null when responding to an unknown help request', async () => {
     respondedAt: '2026-01-02T00:00:00.000Z',
     respondedBy: 'admin'
   }), null);
+});
+
+test('does not let a user close another users help request', async () => {
+  const { storage } = makeStorage({
+    usersEntities: [{ partitionKey: 'HELP', rowKey: 'request-1', userId: 'alice', status: 'open' }]
+  });
+
+  assert.equal(await storage.setHelpRequestStatus('request-1', {
+    userId: 'bob',
+    status: 'closed',
+    changedAt: '2026-01-03T00:00:00.000Z',
+    changedBy: 'bob'
+  }), null);
+});
+
+test('purges expired audit rows concurrently', async () => {
+  let activeDeletes = 0;
+  let maximumActiveDeletes = 0;
+  let releaseDeletes;
+  const release = new Promise((resolve) => { releaseDeletes = resolve; });
+  const auditClient = makeFakeClient({
+    entities: [
+      { partitionKey: 'AUDIT', rowKey: 'old-1' },
+      { partitionKey: 'AUDIT', rowKey: 'old-2' },
+      { partitionKey: 'AUDIT', rowKey: 'old-3' }
+    ],
+    onDelete: async () => {
+      activeDeletes += 1;
+      maximumActiveDeletes = Math.max(maximumActiveDeletes, activeDeletes);
+      if (activeDeletes === 4) releaseDeletes();
+      await release;
+      activeDeletes -= 1;
+    }
+  });
+  const storage = new TableStorage({ linksClient: makeFakeClient(), usersClient: makeFakeClient(), auditClient });
+
+  await storage.appendAuditEvent({ timestamp: '2026-01-01T00:00:00.000Z', action: 'LOGIN_SUCCESS' });
+
+  assert.equal(maximumActiveDeletes, 4);
 });
 
 test('appendAuditEvent stores the event time under eventTime, not the reserved timestamp property', async () => {

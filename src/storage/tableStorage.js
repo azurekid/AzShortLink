@@ -385,7 +385,7 @@ class TableStorage {
   }
 
   async createHelpRequest({ id, userId, username, subject, message, createdAt }) {
-    const request = { id, userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '' };
+    const request = { id, ticketNumber: `AZSL-${id.toUpperCase()}`, userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '', closedAt: '', closedBy: '' };
     await this.usersClient.createEntity({ partitionKey: HELP_PARTITION_KEY, rowKey: id, ...request });
     return request;
   }
@@ -400,6 +400,7 @@ class TableStorage {
     for await (const item of entities) {
       requests.push({
         id: item.rowKey,
+        ticketNumber: item.ticketNumber || `AZSL-${String(item.rowKey).toUpperCase()}`,
         userId: item.userId || '',
         username: item.username || item.userId || '',
         subject: item.subject || '',
@@ -408,7 +409,9 @@ class TableStorage {
         status: item.status || 'open',
         response: item.response || '',
         respondedAt: item.respondedAt || '',
-        respondedBy: item.respondedBy || ''
+        respondedBy: item.respondedBy || '',
+        closedAt: item.closedAt || '',
+        closedBy: item.closedBy || ''
       });
     }
     return requests.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
@@ -427,6 +430,7 @@ class TableStorage {
       const item = await this.usersClient.getEntity(HELP_PARTITION_KEY, String(id).trim());
       return {
         id: item.rowKey,
+        ticketNumber: item.ticketNumber || `AZSL-${String(item.rowKey).toUpperCase()}`,
         userId: item.userId || '',
         username: item.username || item.userId || '',
         subject: item.subject || '',
@@ -435,8 +439,29 @@ class TableStorage {
         status: item.status || 'open',
         response: item.response || '',
         respondedAt: item.respondedAt || '',
-        respondedBy: item.respondedBy || ''
+        respondedBy: item.respondedBy || '',
+        closedAt: item.closedAt || '',
+        closedBy: item.closedBy || ''
       };
+    } catch (err) {
+      if (err && err.statusCode === 404) return null;
+      throw err;
+    }
+  }
+
+  async setHelpRequestStatus(id, { userId = '', status, changedAt, changedBy }) {
+    const requestId = String(id).trim();
+    try {
+      const existing = await this.usersClient.getEntity(HELP_PARTITION_KEY, requestId);
+      if (userId && existing.userId !== userId) return null;
+      await this.usersClient.updateEntity({
+        partitionKey: HELP_PARTITION_KEY,
+        rowKey: requestId,
+        status,
+        closedAt: status === 'closed' ? changedAt : '',
+        closedBy: status === 'closed' ? changedBy : ''
+      }, 'Merge');
+      return (await this.listHelpRequests()).find((request) => request.id === requestId) || null;
     } catch (err) {
       if (err && err.statusCode === 404) return null;
       throw err;
@@ -619,18 +644,18 @@ class TableStorage {
     const expired = this.auditClient.listEntities({
       queryOptions: { filter: `PartitionKey eq '${AUDIT_PARTITION_KEY}' and eventTime lt '${cutoff}'` }
     });
-    let deleted = 0;
+    const expiredRowKeys = [];
     for await (const item of expired) {
-      if (deleted >= 25) {
-        break;
-      }
+      if (expiredRowKeys.length >= 25) break;
+      expiredRowKeys.push(item.rowKey);
+    }
+    await Promise.all(expiredRowKeys.map(async (rowKey) => {
       try {
-        await this.auditClient.deleteEntity(AUDIT_PARTITION_KEY, item.rowKey);
-        deleted += 1;
+        await this.auditClient.deleteEntity(AUDIT_PARTITION_KEY, rowKey);
       } catch {
         // Best-effort: leave it for the next write to retry.
       }
-    }
+    }));
   }
 
   async listAuditEvents({ limit = 200, sinceIso = '' } = {}) {
