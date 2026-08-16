@@ -37,6 +37,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       { panel: 'panel-account', label: 'Account', icon: 'user' },
       { panel: 'panel-profiles', label: 'Profiles', icon: 'users' },
       { panel: 'panel-invites', label: 'Invites', icon: 'user-plus' },
+      { panel: 'panel-help', label: 'Help', icon: 'circle-question' },
       { panel: 'panel-operations', label: 'Operations', icon: 'gauge-high' },
       { panel: 'panel-audit', label: 'Audit trail', icon: 'shield-halved' }
     ])}
@@ -232,6 +233,17 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       </div>
     </section>
 
+    <section id="panel-help" class="tab-panel" role="tabpanel" hidden>
+      <div class="content-grid">
+        <section class="card span-full">
+          <div class="card-header"><h2><i class="fas fa-comments"></i>Help requests</h2><button id="load-help" class="button-secondary button-compact" type="button">Refresh</button></div>
+          <p class="section-lead">Review user questions and send responses that appear in their dashboard.</p>
+          <div id="help-status" class="status" role="status" aria-live="polite"></div>
+          <div id="help-requests" class="stack"><p>No help requests loaded yet.</p></div>
+        </section>
+      </div>
+    </section>
+
     <section id="panel-audit" class="tab-panel" role="tabpanel" hidden>
       <div class="content-grid">
         <section class="card span-full">
@@ -292,9 +304,35 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     tabDispatch: `if (tab.dataset.panel === 'panel-analytics') loadAnalytics();
       if (tab.dataset.panel === 'panel-profiles') loadUsers();
       if (tab.dataset.panel === 'panel-invites') loadInvites();
+        if (tab.dataset.panel === 'panel-help') loadHelpRequests();
         if (tab.dataset.panel === 'panel-audit') loadAuditLog();
         if (tab.dataset.panel === 'panel-account') loadProfile();`
   })}
+    async function loadHelpRequests() {
+      const container = document.getElementById('help-requests');
+      setPanelStatus('help-status', 'Loading help requests...');
+      try {
+        const data = await apiRequest('/api/admin/help');
+        const requests = data.requests || [];
+        if (!requests.length) { container.innerHTML = '<p>No help requests found.</p>'; setPanelStatus('help-status', 'No requests.', 'success'); return; }
+        container.innerHTML = requests.map((item) => '<article class="result"><div class="card-header"><div><strong>' + escapeHtml(item.subject) + '</strong><p class="mono">' + escapeHtml(item.username) + ' / ' + escapeHtml(item.createdAt) + '</p></div><span class="pill ' + (item.status === 'answered' ? 'up' : '') + '">' + escapeHtml(item.status) + '</span></div>' +
+          '<p>' + escapeHtml(item.message) + '</p>' +
+          (item.response ? '<div class="status success"><strong>Response from ' + escapeHtml(item.respondedBy) + '</strong><p>' + escapeHtml(item.response) + '</p></div>' : '') +
+          '<form class="stack help-response-form" data-help-id="' + escapeHtml(item.id) + '"><div class="field"><label>Response</label><textarea maxlength="4000" rows="5" required>' + escapeHtml(item.response || '') + '</textarea></div><button type="submit">' + (item.response ? 'Update response' : 'Send response') + '</button></form></article>').join('');
+        setPanelStatus('help-status', 'Loaded ' + requests.length + ' request(s).', 'success');
+      } catch (error) { container.innerHTML = '<p class="status error">' + escapeHtml(error.message) + '</p>'; setPanelStatus('help-status', error.message, 'error'); }
+    }
+    document.getElementById('load-help').addEventListener('click', loadHelpRequests);
+    document.getElementById('help-requests').addEventListener('submit', async (event) => {
+      const form = event.target.closest('.help-response-form');
+      if (!form) return;
+      event.preventDefault();
+      setPanelStatus('help-status', 'Sending response...');
+      try {
+        await apiRequest('/api/admin/help/' + encodeURIComponent(form.dataset.helpId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ response: form.querySelector('textarea').value }) });
+        await loadHelpRequests();
+      } catch (error) { setPanelStatus('help-status', error.message, 'error'); }
+    });
     async function loadUsers() {
       const body = document.getElementById('users-body');
       if (!body) return;

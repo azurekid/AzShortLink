@@ -2,6 +2,7 @@
 
 const { app } = require('@azure/functions');
 const bcrypt = require('bcryptjs');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const { readFile } = require('node:fs/promises');
 const { getConfig } = require('./src/core/config');
@@ -1180,6 +1181,7 @@ registerHttp('dashboardSignupSubmit', {
       try {
         await sendVerificationEmail(config, {
           recipient: email,
+          username,
           displayName,
           verificationUrl: `${config.baseUrl}/dashboard/verify-email?token=${encodeURIComponent(verificationToken)}`
         });
@@ -1861,6 +1863,92 @@ registerHttp('getProfile', {
       }
 
       throw err;
+    }
+  }
+});
+
+registerHttp('helpRequests', {
+  methods: ['GET', 'POST'],
+  authLevel: 'anonymous',
+  route: 'api/help',
+  handler: async (request) => {
+    const identity = await resolveSessionIdentity(request);
+    if (!identity) return unauthorizedResponse();
+
+    try {
+      const storage = await storagePromise;
+      if (request.method === 'GET') {
+        return { status: 200, jsonBody: { requests: await storage.listHelpRequests(identity.id) } };
+      }
+
+      const payload = await request.json().catch(() => ({}));
+      const subject = typeof payload.subject === 'string' ? payload.subject.trim() : '';
+      const message = typeof payload.message === 'string' ? payload.message.trim() : '';
+      if (!subject || subject.length > 120 || !message || message.length > 4000) {
+        return { status: 400, jsonBody: { error: 'Subject must be 1-120 characters and message must be 1-4000 characters.' } };
+      }
+
+      const helpRequest = await storage.createHelpRequest({
+        id: crypto.randomUUID(),
+        userId: identity.id,
+        username: identity.username,
+        subject,
+        message,
+        createdAt: new Date().toISOString()
+      });
+      return { status: 201, jsonBody: helpRequest };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
+      return { status: 500, jsonBody: { error: 'Unable to process the help request.' } };
+    }
+  }
+});
+
+registerHttp('adminHelpRequests', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/admin/help',
+  handler: async (request) => {
+    const identity = await resolveSessionIdentity(request);
+    if (!identity || identity.role !== 'admin') return unauthorizedResponse();
+
+    try {
+      const storage = await storagePromise;
+      return { status: 200, jsonBody: { requests: await storage.listHelpRequests() } };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
+      return { status: 500, jsonBody: { error: 'Unable to load help requests.' } };
+    }
+  }
+});
+
+registerHttp('respondToHelpRequest', {
+  methods: ['PATCH'],
+  authLevel: 'anonymous',
+  route: 'api/admin/help/{id}',
+  handler: async (request) => {
+    const identity = await resolveSessionIdentity(request);
+    if (!identity || identity.role !== 'admin') return unauthorizedResponse();
+
+    const payload = await request.json().catch(() => ({}));
+    const response = typeof payload.response === 'string' ? payload.response.trim() : '';
+    if (!response || response.length > 4000) {
+      return { status: 400, jsonBody: { error: 'Response must be 1-4000 characters.' } };
+    }
+
+    try {
+      const storage = await storagePromise;
+      const helpRequest = await storage.respondToHelpRequest(request.params.id, {
+        response,
+        respondedAt: new Date().toISOString(),
+        respondedBy: identity.username
+      });
+      return helpRequest
+        ? { status: 200, jsonBody: helpRequest }
+        : { status: 404, jsonBody: { error: 'Help request not found.' } };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
+      return { status: 500, jsonBody: { error: 'Unable to respond to the help request.' } };
     }
   }
 });

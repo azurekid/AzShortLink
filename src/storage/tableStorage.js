@@ -8,6 +8,7 @@ const USER_PARTITION_KEY = 'USER';
 const APIKEY_PARTITION_KEY = 'APIKEY';
 const PASSKEY_PARTITION_KEY = 'PASSKEY';
 const INVITE_PARTITION_KEY = 'INVITE';
+const HELP_PARTITION_KEY = 'HELP';
 const AUDIT_PARTITION_KEY = 'AUDIT';
 
 function parseAgentStats(value) {
@@ -381,6 +382,65 @@ class TableStorage {
     }
 
     return invites;
+  }
+
+  async createHelpRequest({ id, userId, username, subject, message, createdAt }) {
+    const request = { id, userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '' };
+    await this.usersClient.createEntity({ partitionKey: HELP_PARTITION_KEY, rowKey: id, ...request });
+    return request;
+  }
+
+  async listHelpRequests(userId = '') {
+    const escapedUserId = String(userId).replaceAll("'", "''");
+    const filter = userId
+      ? `PartitionKey eq '${HELP_PARTITION_KEY}' and userId eq '${escapedUserId}'`
+      : `PartitionKey eq '${HELP_PARTITION_KEY}'`;
+    const entities = this.usersClient.listEntities({ queryOptions: { filter } });
+    const requests = [];
+    for await (const item of entities) {
+      requests.push({
+        id: item.rowKey,
+        userId: item.userId || '',
+        username: item.username || item.userId || '',
+        subject: item.subject || '',
+        message: item.message || '',
+        createdAt: item.createdAt || '',
+        status: item.status || 'open',
+        response: item.response || '',
+        respondedAt: item.respondedAt || '',
+        respondedBy: item.respondedBy || ''
+      });
+    }
+    return requests.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  }
+
+  async respondToHelpRequest(id, { response, respondedAt, respondedBy }) {
+    try {
+      await this.usersClient.updateEntity({
+        partitionKey: HELP_PARTITION_KEY,
+        rowKey: String(id).trim(),
+        response,
+        respondedAt,
+        respondedBy,
+        status: 'answered'
+      }, 'Merge');
+      const item = await this.usersClient.getEntity(HELP_PARTITION_KEY, String(id).trim());
+      return {
+        id: item.rowKey,
+        userId: item.userId || '',
+        username: item.username || item.userId || '',
+        subject: item.subject || '',
+        message: item.message || '',
+        createdAt: item.createdAt || '',
+        status: item.status || 'open',
+        response: item.response || '',
+        respondedAt: item.respondedAt || '',
+        respondedBy: item.respondedBy || ''
+      };
+    } catch (err) {
+      if (err && err.statusCode === 404) return null;
+      throw err;
+    }
   }
 
   // Returns false (without throwing) if the invite is missing or was already redeemed, so

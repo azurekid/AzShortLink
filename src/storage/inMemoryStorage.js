@@ -9,6 +9,7 @@ class InMemoryStorage {
     this.apiKeys = new Map();
     this.passkeys = new Map();
     this.invites = new Map();
+    this.helpRequests = new Map();
     this.auditEvents = new Map();
     this.tableName = options.tableName || '';
   }
@@ -198,6 +199,27 @@ class InMemoryStorage {
 
   async deleteInvite(code) {
     this.invites.delete(String(code).trim());
+  }
+
+  async createHelpRequest({ id, userId, username, subject, message, createdAt }) {
+    const request = { id, userId, username, subject, message, createdAt, status: 'open', response: '', respondedAt: '', respondedBy: '' };
+    this.helpRequests.set(id, request);
+    return { ...request };
+  }
+
+  async listHelpRequests(userId = '') {
+    return Array.from(this.helpRequests.values())
+      .filter((request) => !userId || request.userId === userId)
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+      .map((request) => ({ ...request }));
+  }
+
+  async respondToHelpRequest(id, { response, respondedAt, respondedBy }) {
+    const request = this.helpRequests.get(String(id).trim());
+    if (!request) return null;
+    const updated = { ...request, response, respondedAt, respondedBy, status: 'answered' };
+    this.helpRequests.set(request.id, updated);
+    return { ...updated };
   }
 
   async createLink({ code, targetUrl, createdAt, ownerId = '' }) {

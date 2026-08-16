@@ -40,6 +40,19 @@ test('renders statistics, account and delete controls', () => {
   assert.match(html, /title="Download QR code"/);
 });
 
+test('provides a help tab for submitting requests and viewing responses', () => {
+  const html = renderUserDashboard('https://azhk.in', {
+    user: { username: 'Alice', displayName: 'Alice', role: 'user' }
+  });
+
+  assert.match(html, /data-panel="panel-help"/);
+  assert.match(html, /id="help-form"/);
+  assert.match(html, /id="help-requests"/);
+  assert.match(html, /apiRequest\('\/api\/help'/);
+  assert.match(html, /Administrator response/);
+  assert.doesNotMatch(html, /api\/admin\/help/);
+});
+
 test('does not show the admin invites-management panel', () => {
   const html = renderUserDashboard('https://azhk.in', {
     user: { username: 'Alice', displayName: 'Alice', role: 'user' }

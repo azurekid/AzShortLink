@@ -78,6 +78,43 @@ test('users, links and audit entities are written to separate table clients', as
   assert.equal(auditClient.created.length, 1);
 });
 
+test('stores, filters and responds to help requests in the users table', async () => {
+  const { storage, usersClient } = makeStorage();
+  const created = await storage.createHelpRequest({
+    id: 'request-1',
+    userId: 'alice',
+    username: 'Alice',
+    subject: 'Invite question',
+    message: 'When can I invite someone?',
+    createdAt: '2026-01-01T00:00:00.000Z'
+  });
+
+  assert.equal(created.status, 'open');
+  assert.equal(usersClient.created[0].partitionKey, 'HELP');
+  assert.deepEqual((await storage.listHelpRequests('alice')).map((request) => request.id), ['request-1']);
+  assert.match(usersClient.filters.at(-1), /userId eq 'alice'/);
+
+  const answered = await storage.respondToHelpRequest('request-1', {
+    response: 'Your account must be at least seven days old.',
+    respondedAt: '2026-01-02T00:00:00.000Z',
+    respondedBy: 'admin'
+  });
+
+  assert.equal(answered.status, 'answered');
+  assert.equal(answered.respondedBy, 'admin');
+  assert.equal(answered.response, 'Your account must be at least seven days old.');
+});
+
+test('returns null when responding to an unknown help request', async () => {
+  const { storage } = makeStorage();
+
+  assert.equal(await storage.respondToHelpRequest('missing', {
+    response: 'Reply',
+    respondedAt: '2026-01-02T00:00:00.000Z',
+    respondedBy: 'admin'
+  }), null);
+});
+
 test('appendAuditEvent stores the event time under eventTime, not the reserved timestamp property', async () => {
   const { storage, auditClient } = makeStorage();
 

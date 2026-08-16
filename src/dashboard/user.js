@@ -34,7 +34,8 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     ${renderTabsNav([
       { panel: 'panel-links', label: 'Links', icon: 'link' },
       { panel: 'panel-analytics', label: 'Statistics', icon: 'chart-bar' },
-      { panel: 'panel-account', label: 'Account', icon: 'user' }
+      { panel: 'panel-account', label: 'Account', icon: 'user' },
+      { panel: 'panel-help', label: 'Help', icon: 'circle-question' }
     ])}
 
     <section id="panel-links" class="tab-panel" role="tabpanel">
@@ -172,6 +173,24 @@ ${renderDocumentHead('AzShortLink Dashboard')}
         </section>
       </div>
     </section>
+
+    <section id="panel-help" class="tab-panel" role="tabpanel" hidden>
+      <div class="content-grid">
+        <section class="card">
+          <div class="card-header"><h2><i class="fas fa-paper-plane"></i>Send a help request</h2></div>
+          <form id="help-form" class="stack">
+            <div class="field"><label for="help-subject">Subject</label><input id="help-subject" maxlength="120" required /></div>
+            <div class="field"><label for="help-message">How can we help?</label><textarea id="help-message" maxlength="4000" rows="8" required></textarea></div>
+            <button type="submit"><i class="fas fa-paper-plane"></i>Send request</button>
+          </form>
+          <div id="help-status" class="status" role="status" aria-live="polite"></div>
+        </section>
+        <section class="card span-full">
+          <div class="card-header"><h2><i class="fas fa-comments"></i>Your requests</h2><button id="load-help" class="button-secondary button-compact" type="button">Refresh</button></div>
+          <div id="help-requests" class="stack"><p>No help requests loaded yet.</p></div>
+        </section>
+      </div>
+    </section>
   </main>
   <script src="/passkeys.js"></script>
   <script>${coreClientScript({
@@ -180,8 +199,31 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     colspan: 5,
     ownerColumnScript: "const owner = '';",
     tabDispatch: `if (tab.dataset.panel === 'panel-analytics') loadAnalytics();
-        if (tab.dataset.panel === 'panel-account') loadProfile();`
+        if (tab.dataset.panel === 'panel-account') loadProfile();
+        if (tab.dataset.panel === 'panel-help') loadHelpRequests();`
   })}
+    async function loadHelpRequests() {
+      const container = document.getElementById('help-requests');
+      try {
+        const data = await apiRequest('/api/help');
+        const requests = data.requests || [];
+        if (!requests.length) { container.innerHTML = '<p>No help requests yet.</p>'; return; }
+        container.innerHTML = requests.map((item) => '<article class="result"><div class="card-header"><strong>' + escapeHtml(item.subject) + '</strong><span class="pill ' + (item.status === 'answered' ? 'up' : '') + '">' + escapeHtml(item.status) + '</span></div>' +
+          '<p>' + escapeHtml(item.message) + '</p><p class="mono">Sent ' + escapeHtml(item.createdAt) + '</p>' +
+          (item.response ? '<div class="status success"><strong>Administrator response</strong><p>' + escapeHtml(item.response) + '</p><span class="mono">' + escapeHtml(item.respondedAt) + '</span></div>' : '<p>Awaiting an administrator response.</p>') + '</article>').join('');
+      } catch (error) { container.innerHTML = '<p class="status error">' + escapeHtml(error.message) + '</p>'; }
+    }
+    document.getElementById('load-help').addEventListener('click', loadHelpRequests);
+    document.getElementById('help-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setPanelStatus('help-status', 'Sending request...');
+      try {
+        await apiRequest('/api/help', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subject: document.getElementById('help-subject').value, message: document.getElementById('help-message').value }) });
+        event.currentTarget.reset();
+        setPanelStatus('help-status', 'Help request sent.', 'success');
+        await loadHelpRequests();
+      } catch (error) { setPanelStatus('help-status', error.message, 'error'); }
+    });
     async function loadMyInvite() {
       const body = document.getElementById('my-invite-body');
       if (!body) return;

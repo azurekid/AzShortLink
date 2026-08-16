@@ -36,6 +36,19 @@ test('shows an invite links panel to admins listing every invite, not just their
   assert.match(html, /apiRequest\('\/api\/invites'\)/);
 });
 
+test('provides a help tab for reviewing and responding to user requests', () => {
+  const html = renderAdminDashboard('https://azhk.in', {
+    user: { username: 'Admin', displayName: 'Admin', role: 'admin' }
+  });
+
+  assert.match(html, /data-panel="panel-help"/);
+  assert.match(html, /id="help-requests"/);
+  assert.match(html, /apiRequest\('\/api\/admin\/help'/);
+  assert.match(html, /method: 'PATCH'/);
+  assert.match(html, /Send response/);
+  assert.doesNotMatch(html, /id="help-form"/);
+});
+
 test('does not show the self-service invite card, since admins use the full invites panel instead', () => {
   const html = renderAdminDashboard('https://azhk.in', {
     user: { username: 'Admin', displayName: 'Admin', role: 'admin' }

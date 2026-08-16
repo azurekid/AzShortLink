@@ -121,6 +121,18 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async createHelpRequest() {
+    throw this.createError();
+  }
+
+  async listHelpRequests() {
+    throw this.createError();
+  }
+
+  async respondToHelpRequest() {
+    throw this.createError();
+  }
+
   async appendAuditEvent() {
     throw this.createError();
   }
