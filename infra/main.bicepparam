@@ -22,6 +22,7 @@ param keyVaultPurgeProtectionEnabled = true
 //   'http://localhost:3000'
 //   'http://localhost:5173'
 // ]
+param includeLocalDevCorsOrigins = false
 
 // ── App Service Plan SKU (Consumption/Y1 does NOT support custom-domain SSL) ──
 param appServicePlanSkuName = 'B1'
@@ -42,7 +43,7 @@ param customCertificatePassword = readEnvironmentVariable('SHORTLINK_CERT_PFX_PA
 // Generate the session secret with: openssl rand -hex 32
 param dashboardUsername = readEnvironmentVariable('DASHBOARD_USERNAME', '')
 param dashboardPasswordHash = readEnvironmentVariable('DASHBOARD_PASSWORD_HASH', '')
-param dashboardSessionSecret = readEnvironmentVariable('DASHBOARD_SESSION_SECRET', '')
-param identityHashSecret = readEnvironmentVariable('IDENTITY_HASH_SECRET', '')
+param dashboardSessionSecret = readEnvironmentVariable('DASHBOARD_SESSION_SECRET')
+param identityHashSecret = readEnvironmentVariable('IDENTITY_HASH_SECRET')
 param communicationServicesConnectionString = readEnvironmentVariable('COMMUNICATION_SERVICES_CONNECTION_STRING', '')
 param emailSenderAddress = readEnvironmentVariable('EMAIL_SENDER_ADDRESS', '')

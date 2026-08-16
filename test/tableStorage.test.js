@@ -275,6 +275,28 @@ test('email verification identity updates preserve the stored password hash', as
   assert.deepEqual(user.riskFlags, ['SHARED_SIGNUP_IP']);
 });
 
+test('password updates increment the session version to revoke existing sessions', async () => {
+  const { storage } = makeStorage({
+    usersEntities: [{ partitionKey: 'USER', rowKey: 'alice', username: 'alice', passwordHash: 'old', sessionVersion: 4 }]
+  });
+
+  await storage.updateUserPassword('alice', 'new');
+
+  const user = await storage.getUser('alice');
+  assert.equal(user.passwordHash, 'new');
+  assert.equal(user.sessionVersion, 5);
+});
+
+test('enforces a shared fixed-window API rate limit', async () => {
+  const { storage } = makeStorage();
+
+  assert.equal((await storage.consumeRateLimit('client-hash', 2, 60000, 1000)).allowed, true);
+  assert.equal((await storage.consumeRateLimit('client-hash', 2, 60000, 1000)).allowed, true);
+  const denied = await storage.consumeRateLimit('client-hash', 2, 60000, 1000);
+  assert.equal(denied.allowed, false);
+  assert.equal(denied.retryAfterSeconds, 59);
+});
+
 test('getHealthDetails reports each table independently', async () => {
   const { storage, auditClient } = makeStorage();
   auditClient.getAccessPolicy = async () => {

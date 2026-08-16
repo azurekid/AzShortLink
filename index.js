@@ -1,6 +1,6 @@
 'use strict';
 
-const { app } = require('@azure/functions');
+const { app, output } = require('@azure/functions');
 const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
 const path = require('node:path');
@@ -26,7 +26,6 @@ const {
   timingSafeEqualString
 } = require('./src/auth/auth');
 const { ACTIONS, AUDIT_RETENTION_DAYS, createAuditWriteLimiter, formatAuditEvent, recordAuditEvent } = require('./src/core/audit');
-const { createRateLimiter } = require('./src/core/rateLimiter');
 const { buildOpenApiSpec } = require('./src/api/openApi');
 const { renderApiDocsPage } = require('./src/pages/apiDocsPage');
 const { createQrCodePng } = require('./src/services/qrCode');
@@ -37,12 +36,13 @@ const {
   normalizeEmail,
   hashIdentityValue,
   maskEmail,
+  createPasswordResetToken,
   createVerificationToken,
+  verifyPasswordResetToken,
   verifyVerificationToken,
   buildRiskSignals
 } = require('./src/auth/identity');
-const { sendVerificationEmail } = require('./src/services/email');
-const { resetPasswordAndSendEmail } = require('./src/services/passwordReset');
+const { sendPasswordResetEmail, sendVerificationEmail } = require('./src/services/email');
 const {
   signChallengeState,
   verifyChallengeState,
@@ -53,14 +53,15 @@ const {
 } = require('./src/auth/passkeys');
 
 const config = getConfig();
-const apiRateLimiter = createRateLimiter({
-  maxRequests: Number.parseInt(process.env.API_RATE_LIMIT_MAX_REQUESTS || '60', 10),
-  windowMs: Number.parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10)
-});
+const passwordResetQueueOutput = output.storageQueue({ queueName: 'password-resets', connection: 'AzureWebJobsStorage' });
+const apiRateLimitMaxRequests = Number.parseInt(process.env.API_RATE_LIMIT_MAX_REQUESTS || '60', 10);
+const apiRateLimitWindowMs = Number.parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10);
 
 function rateLimitedHandler(handler) {
   return async (request, context) => {
-    const result = apiRateLimiter.check(getClientIp(request));
+    const storage = await storagePromise;
+    const rateKey = hashIdentityValue(`rate-limit:api:${getClientIp(request)}`, config.identityHashSecret);
+    const result = await storage.consumeRateLimit(rateKey, apiRateLimitMaxRequests, apiRateLimitWindowMs);
     if (!result.allowed) {
       return {
         status: 429,
@@ -77,7 +78,20 @@ function rateLimitedHandler(handler) {
 }
 
 function registerHttp(name, options) {
-  const handler = options.route.startsWith('api/') ? rateLimitedHandler(options.handler) : options.handler;
+  const routedHandler = options.route.startsWith('api/') ? rateLimitedHandler(options.handler) : options.handler;
+  const handler = async (request, context) => {
+    const method = String(request.method || 'GET').toUpperCase();
+    const origin = request.headers.get('origin');
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && origin) {
+      const requestOrigin = new URL(request.url).origin;
+      const configuredOrigin = new URL(config.baseUrl).origin;
+      if (origin !== requestOrigin && origin !== configuredOrigin) {
+        return { status: 403, headers: { ...SECURITY_HEADERS }, jsonBody: { error: 'Cross-origin request denied.' } };
+      }
+    }
+    const response = await routedHandler(request, context);
+    return { ...response, headers: { ...SECURITY_HEADERS, ...(response.headers || {}) } };
+  };
   return app.http(name, { ...options, handler });
 }
 const storagePromise = createStorage(config);
@@ -86,27 +100,35 @@ const servicePromise = storagePromise.then((storage) => new ShortLinkService(sto
 // surface normally wherever these promises are awaited inside a request handler.
 storagePromise.catch(() => {});
 servicePromise.catch(() => {});
-const SECURITY_HEADERS = {
+function createSecurityHeaders(scriptNonce = '') {
+  const nonceSource = scriptNonce ? ` 'nonce-${scriptNonce}'` : '';
+  return {
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
   'referrer-policy': 'no-referrer',
+  'strict-transport-security': 'max-age=63072000; includeSubDomains; preload',
+  'permissions-policy': 'camera=(), geolocation=(), microphone=(), payment=(), usb=()',
+  'cross-origin-opener-policy': 'same-origin',
   'content-security-policy': [
     "default-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com",
-    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
-    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    `script-src 'self'${nonceSource}`,
     "img-src 'self' data: https://azurehacking.com https://tile.openstreetmap.org",
     "connect-src 'self'"
   ].join('; ')
-};
+  };
+}
+
+const SECURITY_HEADERS = createSecurityHeaders();
 
 const API_DOCS_SECURITY_HEADERS = {
   ...SECURITY_HEADERS,
   'content-security-policy': [
     "default-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com",
-    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
-    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "script-src 'self'",
     "img-src 'self' data: https://azurehacking.com",
     "connect-src 'self'"
   ].join('; ')
@@ -151,7 +173,7 @@ async function resolveSessionIdentity(request) {
   try {
     const storage = await storagePromise;
     const user = await storage.getUser(sessionIdentity.id);
-    return user && (user.status || 'active') === 'active' && !user.branchSuspended
+    return user && (user.status || 'active') === 'active' && !user.branchSuspended && (Number(user.sessionVersion) || 1) === (Number(sessionIdentity.sessionVersion) || 1)
       ? { id: user.id, username: user.username, displayName: user.displayName, role: user.role }
       : null;
   } catch {
@@ -328,15 +350,16 @@ registerHttp('dashboard', {
     }
 
     const renderDashboard = identity && identity.role === 'admin' ? renderAdminDashboard : renderUserDashboard;
+    const cspNonce = crypto.randomBytes(16).toString('base64url');
 
     return {
       status: 200,
       headers: {
         'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store',
-        ...SECURITY_HEADERS
+        ...createSecurityHeaders(cspNonce)
       },
-      body: renderDashboard(config.baseUrl, { user: identity })
+      body: renderDashboard(config.baseUrl, { user: identity, cspNonce })
     };
   }
 });
@@ -700,46 +723,30 @@ function buildAuditContext(request, overrides = {}) {
 
 // Separate trackers per endpoint so guessing invite codes can't lock a shared account out of
 // login, and vice versa; each still shares the same cap/window shape.
-function createAttemptThrottle(maxAttempts = LOGIN_MAX_ATTEMPTS, lockoutMs = LOGIN_LOCKOUT_MS) {
-  const attempts = new Map();
-
+function createAttemptThrottle(scope, maxAttempts = LOGIN_MAX_ATTEMPTS, lockoutMs = LOGIN_LOCKOUT_MS) {
+  const rateKey = (ip) => hashIdentityValue(`rate-limit:${scope}:${ip}`, config.identityHashSecret);
   return {
-    isLockedOut(ip) {
-      const entry = attempts.get(ip);
-      if (!entry) {
-        return false;
-      }
-
-      if (entry.count < maxAttempts) {
-        return false;
-      }
-
-      if (Date.now() - entry.firstAttemptAt > lockoutMs) {
-        attempts.delete(ip);
-        return false;
-      }
-
-      return true;
+    async isLockedOut(ip) {
+      const storage = await storagePromise;
+      const sinceIso = new Date(Date.now() - lockoutMs).toISOString();
+      return (await storage.countRecentRateLimitAttempts(rateKey(ip), sinceIso)) >= maxAttempts;
     },
-    recordFailedAttempt(ip) {
-      const entry = attempts.get(ip);
-      if (!entry || Date.now() - entry.firstAttemptAt > lockoutMs) {
-        attempts.set(ip, { count: 1, firstAttemptAt: Date.now() });
-        return;
-      }
-
-      entry.count += 1;
+    async recordFailedAttempt(ip) {
+      const storage = await storagePromise;
+      await storage.recordRateLimitAttempt(rateKey(ip), new Date().toISOString());
     },
-    clearAttempts(ip) {
-      attempts.delete(ip);
+    async clearAttempts(ip) {
+      const storage = await storagePromise;
+      await storage.clearRateLimitAttempts(rateKey(ip));
     }
   };
 }
 
-const loginThrottle = createAttemptThrottle();
-const passwordResetThrottle = createAttemptThrottle();
+const loginThrottle = createAttemptThrottle('login');
+const passwordResetThrottle = createAttemptThrottle('password-reset');
+const passkeyThrottle = createAttemptThrottle('passkey');
 // Invite codes are bearer tokens for account creation, so guessing them is throttled too.
-const signupThrottle = createAttemptThrottle();
+const signupThrottle = createAttemptThrottle('signup');
 // Audit writes have their own budget so repeated anonymous failures cannot fill the table.
 // This budget intentionally does not reset after a successful signup.
 const signupAuditLimiter = createAuditWriteLimiter({ maxEvents: LOGIN_MAX_ATTEMPTS, windowMs: LOGIN_LOCKOUT_MS });
@@ -805,17 +812,18 @@ registerHttp('forgotPasswordSubmit', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'dashboard/forgot-password',
-  handler: async (request) => {
-    const genericMessage = 'If the username and email address match an active account, a temporary password has been sent.';
+  extraOutputs: [passwordResetQueueOutput],
+  handler: async (request, context) => {
+    const genericMessage = 'If the username and email address match an active account, a password reset link has been sent.';
     const ip = getClientIp(request);
-    if (passwordResetThrottle.isLockedOut(ip)) {
+    if (await passwordResetThrottle.isLockedOut(ip)) {
       return {
         status: 429,
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
         body: renderForgotPasswordPage({ message: genericMessage })
       };
     }
-    passwordResetThrottle.recordFailedAttempt(ip);
+    await passwordResetThrottle.recordFailedAttempt(ip);
 
     const contentType = request.headers.get('content-type') || '';
     let username = '';
@@ -834,38 +842,7 @@ registerHttp('forgotPasswordSubmit', {
       // Return the same response as every other outcome to avoid account enumeration.
     }
 
-    try {
-      const storage = await storagePromise;
-      const user = username ? await storage.getUser(username) : null;
-      const suppliedEmailHash = email ? hashIdentityValue(email, config.identityHashSecret) : '';
-      const emailMatches = user && suppliedEmailHash && timingSafeEqualString(user.emailHash || '', suppliedEmailHash);
-      const canReset = emailMatches && user.emailVerifiedAt && (user.status || 'active') === 'active';
-
-      if (canReset) {
-        try {
-          const updated = await resetPasswordAndSendEmail({ storage, user, email, config });
-          if (updated) {
-            await recordAuditEvent(storage, {
-              action: ACTIONS.PASSWORD_RESET_SELF_SERVICE,
-              actorId: user.id,
-              actorUsername: user.username,
-              actorRole: user.role,
-              ...buildAuditContext(request, { authenticationMethod: 'email' }),
-              details: { userName: user.username }
-            });
-          }
-        } catch (err) {
-          console.error('[email] Password reset delivery failed.', {
-            code: err.code,
-            causeCode: err.cause?.code,
-            statusCode: err.cause?.statusCode,
-            causeMessage: err.cause?.message
-          });
-        }
-      }
-    } catch (err) {
-      console.error('[auth] Password reset request failed.', { code: err.code, message: err.message });
-    }
+    context.extraOutputs.set(passwordResetQueueOutput, JSON.stringify({ username, email }));
 
     return {
       status: 200,
@@ -875,11 +852,93 @@ registerHttp('forgotPasswordSubmit', {
   }
 });
 
+app.storageQueue('processPasswordReset', {
+  queueName: 'password-resets',
+  connection: 'AzureWebJobsStorage',
+  handler: async (message) => {
+    const payload = typeof message === 'string' ? JSON.parse(message) : message;
+    const username = typeof payload?.username === 'string' ? payload.username.trim() : '';
+    const email = normalizeEmail(payload?.email);
+    if (!username || !EMAIL_PATTERN.test(email)) return;
+
+    const storage = await storagePromise;
+    const user = await storage.getUser(username);
+    const suppliedEmailHash = hashIdentityValue(email, config.identityHashSecret);
+    const emailMatches = user && timingSafeEqualString(user.emailHash || '', suppliedEmailHash);
+    if (!emailMatches || !user.emailVerifiedAt || (user.status || 'active') !== 'active') return;
+
+    const token = createPasswordResetToken(user, config.identityHashSecret);
+    await sendPasswordResetEmail(config, {
+      recipient: email,
+      username: user.username,
+      displayName: user.displayName,
+      resetUrl: `${config.baseUrl}/dashboard/reset-password?token=${encodeURIComponent(token)}`
+    });
+  }
+});
+
+registerHttp('resetPasswordPage', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'dashboard/reset-password',
+  handler: async (request) => {
+    const token = new URL(request.url).searchParams.get('token') || '';
+    const claims = verifyPasswordResetToken(token, config.identityHashSecret);
+    const storage = await storagePromise;
+    const user = claims ? await storage.getUser(claims.userId) : null;
+    const valid = user && user.emailHash === claims.emailHash && (Number(user.sessionVersion) || 1) === (Number(claims.sessionVersion) || 1) && (user.status || 'active') === 'active';
+    return {
+      status: valid ? 200 : 400,
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+      body: valid ? renderForgotPasswordPage({ resetToken: token }) : renderForgotPasswordPage({ error: 'This password reset link is invalid or expired.' })
+    };
+  }
+});
+
+registerHttp('resetPasswordSubmit', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'dashboard/reset-password',
+  handler: async (request) => {
+    const form = new URLSearchParams(await request.text());
+    const token = form.get('token') || '';
+    const newPassword = form.get('newPassword') || '';
+    const confirmPassword = form.get('confirmPassword') || '';
+    const claims = verifyPasswordResetToken(token, config.identityHashSecret);
+    const storage = await storagePromise;
+    const user = claims ? await storage.getUser(claims.userId) : null;
+    const valid = user && user.emailHash === claims.emailHash && (Number(user.sessionVersion) || 1) === (Number(claims.sessionVersion) || 1) && (user.status || 'active') === 'active';
+    if (!valid) {
+      return { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS }, body: renderForgotPasswordPage({ error: 'This password reset link is invalid or expired.' }) };
+    }
+    if (newPassword.length < 12 || newPassword !== confirmPassword) {
+      return { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS }, body: renderForgotPasswordPage({ resetToken: token, error: 'Passwords must match and contain at least 12 characters.' }) };
+    }
+    await storage.updateUserPassword(user.id, await bcrypt.hash(newPassword, 12));
+    await recordAuditEvent(storage, {
+      action: ACTIONS.PASSWORD_RESET_SELF_SERVICE,
+      actorId: user.id,
+      actorUsername: user.username,
+      actorRole: user.role,
+      ...buildAuditContext(request, { authenticationMethod: 'email' }),
+      details: { userName: user.username }
+    });
+    return {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'set-cookie': buildClearedSessionCookie(request), ...SECURITY_HEADERS },
+      body: renderForgotPasswordPage({ message: 'Your password has been reset. Sign in with your new password.' })
+    };
+  }
+});
+
 registerHttp('passkeyAuthenticationOptions', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'dashboard/passkeys/options',
-  handler: async () => {
+  handler: async (request) => {
+    if (await passkeyThrottle.isLockedOut(getClientIp(request))) {
+      return { status: 429, jsonBody: { error: 'Too many passkey attempts. Try again later.' } };
+    }
     const options = await authenticationOptions(config);
     return { status: 200, jsonBody: { options, state: signChallengeState({ purpose: 'authentication', challenge: options.challenge }, config.identityHashSecret) } };
   }
@@ -890,10 +949,15 @@ registerHttp('passkeyAuthenticationVerify', {
   authLevel: 'anonymous',
   route: 'dashboard/passkeys/verify',
   handler: async (request) => {
+    const ip = getClientIp(request);
+    if (await passkeyThrottle.isLockedOut(ip)) {
+      return { status: 429, jsonBody: { error: 'Too many passkey attempts. Try again later.' } };
+    }
     const payload = await request.json().catch(() => ({}));
     const state = verifyChallengeState(payload.state, config.identityHashSecret, 'authentication');
     const storage = await storagePromise;
     if (!state || !payload.response || !payload.response.id) {
+      await passkeyThrottle.recordFailedAttempt(ip);
       await recordAuditEvent(storage, {
         action: ACTIONS.LOGIN_FAILED,
         ...buildAuditContext(request, { authenticationMethod: 'passkey', outcome: 'failure' }),
@@ -903,6 +967,7 @@ registerHttp('passkeyAuthenticationVerify', {
     }
     const credential = await storage.getPasskey(payload.response.id);
     if (!credential) {
+      await passkeyThrottle.recordFailedAttempt(ip);
       await recordAuditEvent(storage, {
         action: ACTIONS.LOGIN_FAILED,
         ...buildAuditContext(request, { authenticationMethod: 'passkey', outcome: 'failure' }),
@@ -912,6 +977,7 @@ registerHttp('passkeyAuthenticationVerify', {
     }
     const user = await storage.getUser(credential.userId);
     if (!user || (user.status || 'active') !== 'active') {
+      await passkeyThrottle.recordFailedAttempt(ip);
       await recordAuditEvent(storage, {
         action: ACTIONS.LOGIN_FAILED,
         actorId: credential.userId,
@@ -926,6 +992,7 @@ registerHttp('passkeyAuthenticationVerify', {
       const result = await verifyAuthentication(config, payload.response, state.challenge, credential);
       if (!result.verified) throw new Error('Passkey verification failed.');
       await storage.updatePasskeyCounter(credential.id, result.authenticationInfo.newCounter);
+      await passkeyThrottle.clearAttempts(ip);
       await recordAuditEvent(storage, {
         action: ACTIONS.LOGIN_SUCCESS,
         actorId: user.id,
@@ -937,6 +1004,7 @@ registerHttp('passkeyAuthenticationVerify', {
       const token = createSessionToken(user, config.dashboardSessionSecret);
       return { status: 200, headers: { 'set-cookie': buildSessionCookie(token, request) }, jsonBody: { authenticated: true } };
     } catch {
+      await passkeyThrottle.recordFailedAttempt(ip);
       await recordAuditEvent(storage, {
         action: ACTIONS.LOGIN_FAILED,
         actorId: user.id,
@@ -960,7 +1028,7 @@ registerHttp('dashboardLoginSubmit', {
     }
 
     const ip = getClientIp(request);
-    if (loginThrottle.isLockedOut(ip)) {
+    if (await loginThrottle.isLockedOut(ip)) {
       const storage = await storagePromise;
       await recordAuditEvent(storage, {
         action: ACTIONS.LOGIN_FAILED,
@@ -1007,7 +1075,7 @@ registerHttp('dashboardLoginSubmit', {
     const storage = await storagePromise;
     const user = await verifyCredentials(username, password, storage, config.dashboardPasswordHash);
     if (!user) {
-      loginThrottle.recordFailedAttempt(ip);
+      await loginThrottle.recordFailedAttempt(ip);
       await recordAuditEvent(storage, {
         action: ACTIONS.LOGIN_FAILED,
         actorUsername: username || 'unknown',
@@ -1021,7 +1089,7 @@ registerHttp('dashboardLoginSubmit', {
       };
     }
 
-    loginThrottle.clearAttempts(ip);
+    await loginThrottle.clearAttempts(ip);
     await recordAuditEvent(storage, {
       action: ACTIONS.LOGIN_SUCCESS,
       actorId: user.id,
@@ -1078,7 +1146,7 @@ registerHttp('dashboardSignupPage', {
   handler: async (request) => {
     const inviteCode = new URL(request.url).searchParams.get('invite') || '';
     const ip = getClientIp(request);
-    if (signupThrottle.isLockedOut(ip)) {
+    if (await signupThrottle.isLockedOut(ip)) {
       return {
         status: 429,
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
@@ -1092,7 +1160,7 @@ registerHttp('dashboardSignupPage', {
       if (!invite || invite.redeemed) {
         // Counts toward the same throttle as POST failures - this GET is the main way to
         // brute-force/enumerate invite codes, since it directly reveals valid vs. invalid.
-        signupThrottle.recordFailedAttempt(ip);
+        await signupThrottle.recordFailedAttempt(ip);
         return {
           status: invite ? 410 : 404,
           headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
@@ -1122,7 +1190,7 @@ registerHttp('dashboardSignupSubmit', {
   route: 'dashboard/signup',
   handler: async (request) => {
     const ip = getClientIp(request);
-    if (signupThrottle.isLockedOut(ip)) {
+    if (await signupThrottle.isLockedOut(ip)) {
       const storage = await storagePromise;
       await recordSignupFailure(storage, request, { reason: 'rate_limited' });
       return {
@@ -1182,7 +1250,7 @@ registerHttp('dashboardSignupSubmit', {
     }
 
     if (!invite || invite.redeemed) {
-      signupThrottle.recordFailedAttempt(ip);
+      await signupThrottle.recordFailedAttempt(ip);
       await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: invite ? 'invite_redeemed' : 'invite_not_found' });
       return {
         status: invite ? 410 : 404,
@@ -1194,7 +1262,7 @@ registerHttp('dashboardSignupSubmit', {
     }
 
     if (!/^[A-Za-z0-9._-]{3,64}$/.test(username) || !displayName || !EMAIL_PATTERN.test(email) || password.length < 12) {
-      signupThrottle.recordFailedAttempt(ip);
+      await signupThrottle.recordFailedAttempt(ip);
       await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'invalid_profile_input' });
       return {
         status: 400,
@@ -1210,7 +1278,7 @@ registerHttp('dashboardSignupSubmit', {
       const createdAt = new Date().toISOString();
       const emailHash = hashIdentityValue(email, config.identityHashSecret);
       if (await storage.getUserByEmailHash(emailHash)) {
-        signupThrottle.recordFailedAttempt(ip);
+        await signupThrottle.recordFailedAttempt(ip);
         await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'identity_already_registered' });
         return {
           status: 409,
@@ -1221,7 +1289,7 @@ registerHttp('dashboardSignupSubmit', {
 
       const sponsor = await storage.getUser(invite.createdBy);
       if (!sponsor || sponsor.status === 'suspended' || sponsor.branchSuspended) {
-        signupThrottle.recordFailedAttempt(ip);
+        await signupThrottle.recordFailedAttempt(ip);
         await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'sponsor_unavailable', details: { sponsorUserName: invite.createdBy } });
         return {
           status: 403,
@@ -1232,7 +1300,7 @@ registerHttp('dashboardSignupSubmit', {
 
       const ancestry = buildInviteAncestry(sponsor);
       if (ancestry.inviteDepth > DEFAULT_INVITE_POLICY.maximumDepth) {
-        signupThrottle.recordFailedAttempt(ip);
+        await signupThrottle.recordFailedAttempt(ip);
         await recordSignupFailure(storage, request, {
           userName: username,
           inviteCode,
@@ -1282,7 +1350,7 @@ registerHttp('dashboardSignupSubmit', {
       if (!redeemed) {
         // Lost a race with another signup using the same invite; undo the just-created account.
         await storage.deleteUser(user.id);
-        signupThrottle.recordFailedAttempt(ip);
+        await signupThrottle.recordFailedAttempt(ip);
         await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'invite_redemption_race' });
         return {
           status: 409,
@@ -1294,7 +1362,7 @@ registerHttp('dashboardSignupSubmit', {
       // The invite code doubles as a real shortlink code; deleting it here means the URL
       // itself stops resolving once redeemed, instead of redirecting forever to a dead end.
       await storage.deleteLink(inviteCode);
-      signupThrottle.clearAttempts(ip);
+      await signupThrottle.clearAttempts(ip);
 
       await recordAuditEvent(storage, {
         action: ACTIONS.SIGNUP_SUCCESS,
@@ -1324,7 +1392,7 @@ registerHttp('dashboardSignupSubmit', {
       };
     } catch (err) {
       if (err.code === 'USER_EXISTS') {
-        signupThrottle.recordFailedAttempt(ip);
+        await signupThrottle.recordFailedAttempt(ip);
         await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'user_name_exists' });
         return {
           status: 409,
@@ -2183,6 +2251,10 @@ const STATIC_ASSETS = new Map([
   ['css/not-found.css', { file: 'css/not-found.css', contentType: 'text/css; charset=utf-8' }],
   ['css/api-docs.css', { file: 'css/api-docs.css', contentType: 'text/css; charset=utf-8' }],
   ['css/custom.css', { file: 'css/custom.css', contentType: 'text/css; charset=utf-8' }],
+  ['js/login.js', { file: 'js/login.js', contentType: 'text/javascript; charset=utf-8' }],
+  ['js/signup.js', { file: 'js/signup.js', contentType: 'text/javascript; charset=utf-8' }],
+  ['js/forgot-password.js', { file: 'js/forgot-password.js', contentType: 'text/javascript; charset=utf-8' }],
+  ['js/api-docs.js', { file: 'js/api-docs.js', contentType: 'text/javascript; charset=utf-8' }],
   ['images/background.jpg', { file: 'images/background.jpg', contentType: 'image/jpeg' }]
 ]);
 
@@ -2205,6 +2277,36 @@ registerHttp('staticAsset', {
   }
 });
 
+const VENDOR_ASSETS = new Map([
+  ['css/fontawesome.min.css', { file: ['@fortawesome', 'fontawesome-free', 'css', 'all.min.css'], contentType: 'text/css; charset=utf-8' }],
+  ['webfonts/fa-solid-900.woff2', { file: ['@fortawesome', 'fontawesome-free', 'webfonts', 'fa-solid-900.woff2'], contentType: 'font/woff2' }],
+  ['webfonts/fa-regular-400.woff2', { file: ['@fortawesome', 'fontawesome-free', 'webfonts', 'fa-regular-400.woff2'], contentType: 'font/woff2' }],
+  ['webfonts/fa-brands-400.woff2', { file: ['@fortawesome', 'fontawesome-free', 'webfonts', 'fa-brands-400.woff2'], contentType: 'font/woff2' }],
+  ['leaflet/leaflet.css', { file: ['leaflet', 'dist', 'leaflet.css'], contentType: 'text/css; charset=utf-8' }],
+  ['leaflet/leaflet.js', { file: ['leaflet', 'dist', 'leaflet.js'], contentType: 'text/javascript; charset=utf-8' }],
+  ['leaflet/images/marker-icon.png', { file: ['leaflet', 'dist', 'images', 'marker-icon.png'], contentType: 'image/png' }],
+  ['leaflet/images/marker-icon-2x.png', { file: ['leaflet', 'dist', 'images', 'marker-icon-2x.png'], contentType: 'image/png' }],
+  ['leaflet/images/marker-shadow.png', { file: ['leaflet', 'dist', 'images', 'marker-shadow.png'], contentType: 'image/png' }],
+  ['swagger/swagger-ui.css', { file: ['swagger-ui-dist', 'swagger-ui.css'], contentType: 'text/css; charset=utf-8' }],
+  ['swagger/swagger-ui-bundle.js', { file: ['swagger-ui-dist', 'swagger-ui-bundle.js'], contentType: 'text/javascript; charset=utf-8' }]
+]);
+
+registerHttp('vendorAsset', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'vendor/{category}/{*file}',
+  handler: async (request) => {
+    const key = `${request.params.category}/${request.params.file}`;
+    const asset = VENDOR_ASSETS.get(key);
+    if (!asset) return { status: 404, body: 'Not found.' };
+    return {
+      status: 200,
+      headers: { 'content-type': asset.contentType, 'cache-control': 'public, max-age=86400, immutable' },
+      body: await readFile(path.join(__dirname, 'node_modules', ...asset.file))
+    };
+  }
+});
+
 registerHttp('passkeyBrowserScript', {
   methods: ['GET'],
   authLevel: 'anonymous',
@@ -2220,7 +2322,7 @@ registerHttp('health', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'api/health',
-  handler: async () => {
+  handler: async (request) => {
     const service = await servicePromise;
     const health = await service.getHealth();
     const missingAppSettings = [];
@@ -2229,18 +2331,24 @@ registerHttp('health', {
       missingAppSettings.push('SHORTLINK_API_KEY');
     }
 
-    if (!config.storageConnectionString) {
-      missingAppSettings.push('AzureWebJobsStorage/AZURE_STORAGE_CONNECTION_STRING');
+    if (!config.storageConnectionString && !config.storageTableEndpoint) {
+      missingAppSettings.push('AzureWebJobsStorage/AZURE_STORAGE_TABLE_ENDPOINT');
+    }
+
+    const identity = await resolveSessionIdentity(request);
+    const status = health.status === 'healthy' && missingAppSettings.length === 0 ? 200 : 503;
+    if (!identity || identity.role !== 'admin') {
+      return { status, jsonBody: { status: status === 200 ? 'healthy' : 'degraded', checkedAt: health.checkedAt } };
     }
 
     return {
-      status: health.status === 'healthy' && missingAppSettings.length === 0 ? 200 : 503,
+      status,
       jsonBody: {
         ...health,
         config: {
           baseUrl: config.baseUrl,
           apiKeyConfigured: Boolean(config.apiKey),
-          storageConnectionConfigured: Boolean(config.storageConnectionString),
+          storageConnectionConfigured: Boolean(config.storageConnectionString || config.storageTableEndpoint),
           missingAppSettings
         }
       }

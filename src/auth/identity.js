@@ -36,6 +36,31 @@ function verifyVerificationToken(token, secret, now = Date.now()) {
   }
 }
 
+function createPasswordResetToken({ userId, id, emailHash, sessionVersion }, secret, now = Date.now()) {
+  const payload = Buffer.from(JSON.stringify({
+    purpose: 'password-reset',
+    userId: userId || id,
+    emailHash,
+    sessionVersion: Number(sessionVersion) || 1,
+    nonce: crypto.randomBytes(16).toString('base64url'),
+    expiresAt: now + 30 * 60 * 1000
+  })).toString('base64url');
+  return `${payload}.${hashIdentityValue(payload, secret)}`;
+}
+
+function verifyPasswordResetToken(token, secret, now = Date.now()) {
+  const [payload, signature] = String(token || '').split('.');
+  if (!payload || !signature) return null;
+  const expected = hashIdentityValue(payload, secret);
+  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return claims.purpose === 'password-reset' && claims.userId && claims.emailHash && claims.expiresAt >= now ? claims : null;
+  } catch {
+    return null;
+  }
+}
+
 function buildRiskSignals(request, secret) {
   const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
   const userAgent = request.headers.get('user-agent') || 'unknown';
@@ -53,5 +78,7 @@ module.exports = {
   maskEmail,
   createVerificationToken,
   verifyVerificationToken,
+  createPasswordResetToken,
+  verifyPasswordResetToken,
   buildRiskSignals
 };

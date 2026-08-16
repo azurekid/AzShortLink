@@ -31,12 +31,13 @@ test('stylesheets reference the local background image', () => {
 
 test('signup shows a pending state while sending the verification email', () => {
   const signup = renderSignupPage({ invite: 'invite-code' });
-  const script = signup.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const script = readFileSync(join(assets, 'js', 'signup.js'), 'utf8');
 
   assert.match(signup, /id="signup-form"/);
   assert.match(signup, /id="signup-status"/);
-  assert.match(signup, /Sending verification email/);
-  assert.match(signup, /button\.disabled = true/);
+  assert.match(signup, /src="\/assets\/js\/signup\.js"/);
+  assert.match(script, /Sending verification email/);
+  assert.match(script, /button\.disabled = true/);
   assert.doesNotThrow(() => new Function(script));
 });
 
@@ -52,4 +53,15 @@ test('first-party page sources do not embed static style blocks', () => {
   for (const file of sources) {
     assert.doesNotMatch(readFileSync(file, 'utf8'), /<style\b/i, file);
   }
+});
+
+test('browser scripts and component styles are served from pinned local assets', () => {
+  const sources = [
+    readFileSync(join(__dirname, '..', 'src', 'dashboard', 'shared.js'), 'utf8'),
+    readFileSync(join(__dirname, '..', 'src', 'pages', 'apiDocsPage.js'), 'utf8')
+  ].join('\n');
+
+  assert.doesNotMatch(sources, /unpkg\.com|cdnjs\.cloudflare\.com/);
+  assert.match(sources, /\/vendor\/leaflet\/leaflet\.js/);
+  assert.match(sources, /\/vendor\/swagger\/swagger-ui-bundle\.js/);
 });

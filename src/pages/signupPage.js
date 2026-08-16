@@ -56,15 +56,7 @@ function renderSignupPage(options = {}) {
 <body>
   ${invite && !message
     ? `<form id="signup-form" method="POST" action="/dashboard/signup" autocomplete="off">${body}</form>
-  <script>
-    document.getElementById('signup-form').addEventListener('submit', () => {
-      const button = document.getElementById('create-account');
-      button.disabled = true;
-      button.setAttribute('aria-busy', 'true');
-      button.textContent = 'Sending verification email...';
-      document.getElementById('signup-status').textContent = 'Creating your account and sending your verification email. This may take a moment.';
-    });
-  </script>`
+  <script src="/assets/js/signup.js"></script>`
     : `<div class="auth-panel">${body}</div>`}
 </body>
 </html>`;

@@ -12,6 +12,8 @@ class InMemoryStorage {
     this.invites = new Map();
     this.helpRequests = new Map();
     this.auditEvents = new Map();
+    this.rateLimitAttempts = new Map();
+    this.rateLimitWindows = new Map();
     this.tableName = options.tableName || '';
   }
 
@@ -40,7 +42,8 @@ class InMemoryStorage {
       signupIpHash: identity.signupIpHash || '',
       signupDeviceHash: identity.signupDeviceHash || '',
       riskFlags: identity.riskFlags || [],
-      branchSuspended: Boolean(identity.branchSuspended)
+      branchSuspended: Boolean(identity.branchSuspended),
+      sessionVersion: Number(identity.sessionVersion) || 1
     };
     this.users.set(userId, user);
     return { ...user, passwordHash: undefined };
@@ -65,6 +68,7 @@ class InMemoryStorage {
       inviteDepth: Number(user.inviteDepth) || 0,
       riskFlags: user.riskFlags || [],
       branchSuspended: Boolean(user.branchSuspended),
+      sessionVersion: Number(user.sessionVersion) || 1,
       createdAt: user.createdAt,
       linkCount: Array.from(this.items.values()).filter((item) => item.ownerId === user.id).length
     }));
@@ -72,6 +76,28 @@ class InMemoryStorage {
 
   async getUserByEmailHash(emailHash) {
     return Array.from(this.users.values()).find((user) => user.emailHash === emailHash) || null;
+  }
+
+  async countRecentRateLimitAttempts(rateKey, sinceIso) {
+    return (this.rateLimitAttempts.get(rateKey) || []).filter((attemptedAt) => attemptedAt >= sinceIso).length;
+  }
+
+  async recordRateLimitAttempt(rateKey, attemptedAt) {
+    const attempts = (this.rateLimitAttempts.get(rateKey) || []).filter((value) => value >= new Date(Date.parse(attemptedAt) - 24 * 60 * 60 * 1000).toISOString());
+    attempts.push(attemptedAt);
+    this.rateLimitAttempts.set(rateKey, attempts);
+  }
+
+  async clearRateLimitAttempts(rateKey) {
+    this.rateLimitAttempts.delete(rateKey);
+  }
+
+  async consumeRateLimit(rateKey, maxRequests, windowMs, now = Date.now()) {
+    const bucket = Math.floor(now / windowMs);
+    const key = `${rateKey}:${bucket}`;
+    const count = (this.rateLimitWindows.get(key) || 0) + 1;
+    this.rateLimitWindows.set(key, count);
+    return { allowed: count <= maxRequests, retryAfterSeconds: Math.max(1, Math.ceil(((bucket + 1) * windowMs - now) / 1000)) };
   }
 
   async updateUserIdentity(userId, changes) {
@@ -98,7 +124,7 @@ class InMemoryStorage {
       return false;
     }
 
-    this.users.set(user.id, { ...user, passwordHash });
+    this.users.set(user.id, { ...user, passwordHash, sessionVersion: (Number(user.sessionVersion) || 1) + 1 });
     return true;
   }
 

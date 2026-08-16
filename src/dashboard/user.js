@@ -17,6 +17,7 @@ function renderUserDashboard(baseUrl, options = {}) {
   const safeDisplayName = escapeHtml(user.displayName || user.username || 'User');
   const safeUsername = escapeHtml(user.username || '');
   const safeRole = escapeHtml(user.role || 'user');
+  const cspNonce = escapeHtml(options.cspNonce || '');
   const legacyConfigWarning = options.apiKeyConfigured === false
     ? '<p class="status">SHORTLINK_API_KEY is not configured</p>'
     : '';
@@ -193,7 +194,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     </section>
   </main>
   <script src="/passkeys.js"></script>
-  <script>${coreClientScript({
+  <script nonce="${cspNonce}">${coreClientScript({
     safeUsername,
     safeBaseUrl,
     colspan: 5,

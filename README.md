@@ -34,7 +34,7 @@ AzShortLink is a self-hosted URL shortener built on Azure Functions. It combines
 
 - Single-use invites with direct sponsor, root sponsor, and depth tracking.
 - Email verification through Azure Communication Services Email.
-- Non-enumerating self-service password reset using the registered username and email address; temporary passwords are emailed once and stored only as bcrypt hashes.
+- Non-enumerating self-service password reset using queued, signed, one-time links that expire after 30 minutes.
 - Duplicate prevention using a keyed hash of the normalized email address.
 - Keyed IP and coarse device signals for review, never as identity proof.
 - Non-blocking signup risk flags for administrator review, plus recursive branch suspension.
@@ -130,7 +130,7 @@ func start
 - Swagger: `http://localhost:7071/api`
 - Health: `http://localhost:7071/api/health`
 
-The application layer can use in-memory storage for tests, but the Functions host still requires a valid `AzureWebJobsStorage` setting.
+The application layer can use in-memory storage for tests. Azure deployments use the Function managed identity for host and Table Storage access; local development still uses Azurite through `AzureWebJobsStorage`.
 
 ## Configuration
 
@@ -138,17 +138,19 @@ The application layer can use in-memory storage for tests, but the Functions hos
 |---|---:|---:|---|
 | `SHORTLINK_API_KEY` | Required | Yes | Deployment administrator API key |
 | `PUBLIC_BASE_URL` | Required | No | Canonical links and WebAuthn origin |
-| `AzureWebJobsStorage` / `AZURE_STORAGE_CONNECTION_STRING` | Required | Yes | Functions host and tables |
+| `AzureWebJobsStorage` / `AZURE_STORAGE_CONNECTION_STRING` | Local only | Yes | Azurite host and tables |
+| `AZURE_STORAGE_TABLE_ENDPOINT` | Azure deployment | No | Managed-identity Table endpoint |
+| `AZURE_STORAGE_QUEUE_ENDPOINT` | Azure deployment | No | Managed-identity password-reset queue endpoint |
 | `SHORTLINK_TABLE_NAME` | Optional | No | Links table |
 | `SHORTLINK_USERS_TABLE_NAME` | Optional | No | Profiles and credentials table |
 | `SHORTLINK_AUDIT_TABLE_NAME` | Optional | No | Audit table |
 | `DASHBOARD_USERNAME` | Required | No | Bootstrap administrator |
 | `DASHBOARD_PASSWORD_HASH` | Required | Yes | Bootstrap bcrypt hash |
-| `DASHBOARD_SESSION_SECRET` | Recommended | Yes | Session and challenge signing |
+| `DASHBOARD_SESSION_SECRET` | Required | Yes | Independent session and challenge signing key |
 | `IDENTITY_HASH_SECRET` | Required | Yes | Keyed identity and risk hashes |
 | `COMMUNICATION_SERVICES_CONNECTION_STRING` | For invite signup | Yes | Verification delivery |
 | `EMAIL_SENDER_ADDRESS` | For invite signup | No | Verified ACS sender |
-| `API_RATE_LIMIT_MAX_REQUESTS` | Optional | No | Requests per process window, default `60` |
+| `API_RATE_LIMIT_MAX_REQUESTS` | Optional | No | Requests per shared storage-backed window, default `60` |
 | `API_RATE_LIMIT_WINDOW_MS` | Optional | No | Window length, default `60000` |
 
 Bicep writes sensitive values to Key Vault and configures versionless App Service references. Local development reads the same setting names directly.

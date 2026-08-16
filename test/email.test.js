@@ -33,14 +33,14 @@ test('reports missing verification email configuration explicitly', async () => 
   );
 });
 
-test('builds a styled temporary-password email without exposing unescaped content', () => {
-  const content = buildPasswordResetEmailContent({ username: 'User <admin>', temporaryPassword: 'Temp&Password_123' });
+test('builds a styled one-time password reset link email', () => {
+  const content = buildPasswordResetEmailContent({ username: 'User <admin>', resetUrl: 'https://example.com/reset?token=a&b=c' });
 
   assert.equal(content.subject, 'Your AzShortLink temporary password');
-  assert.match(content.plainText, /Temp&Password_123/);
-  assert.match(content.plainText, /change it immediately/i);
+  assert.match(content.plainText, /one-time link/i);
+  assert.match(content.plainText, /30 minutes/);
   assert.match(content.html, /User &lt;admin&gt;/);
-  assert.match(content.html, /Temp&amp;Password_123/);
+  assert.match(content.html, /token=a&amp;b=c/);
   assert.match(content.html, /role="presentation"/);
   assert.doesNotMatch(content.html, /User <admin>/);
 });

@@ -53,6 +53,22 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async countRecentRateLimitAttempts() {
+    throw this.createError();
+  }
+
+  async recordRateLimitAttempt() {
+    throw this.createError();
+  }
+
+  async clearRateLimitAttempts() {
+    throw this.createError();
+  }
+
+  async consumeRateLimit() {
+    throw this.createError();
+  }
+
   async updateUserIdentity() {
     throw this.createError();
   }

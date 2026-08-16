@@ -3,13 +3,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createSessionToken, generateTemporaryPassword, verifySessionToken, verifyCredentials } = require('../src/auth/auth');
+const { createSessionToken, verifySessionToken, verifyCredentials } = require('../src/auth/auth');
 const { InMemoryStorage } = require('../src/storage/inMemoryStorage');
 const { renderLoginPage } = require('../src/pages/loginPage');
+const { createPasswordResetToken, verifyPasswordResetToken } = require('../src/auth/identity');
 const bcrypt = require('bcryptjs');
 
 test('round trips a signed user identity', () => {
-  const user = { id: 'alice', username: 'Alice', displayName: 'Alice Example', role: 'user' };
+  const user = { id: 'alice', username: 'Alice', displayName: 'Alice Example', role: 'user', sessionVersion: 1 };
   const token = createSessionToken(user, 'test-secret');
 
   assert.deepEqual(verifySessionToken(token, 'test-secret'), user);
@@ -56,15 +57,28 @@ test('preserves the signup password when email verification activates the profil
   assert.deepEqual(identity.riskFlags, ['SHARED_SIGNUP_IP', 'SHARED_DEVICE_SIGNAL']);
 });
 
-test('generates strong URL-safe temporary passwords', () => {
-  const passwords = new Set(Array.from({ length: 20 }, () => generateTemporaryPassword()));
-
-  assert.equal(passwords.size, 20);
-  for (const password of passwords) {
-    assert.match(password, /^[A-Za-z0-9_-]{20}!9aA$/);
-  }
-});
-
 test('login page links to self-service password reset', () => {
   assert.match(renderLoginPage(), /href="\/dashboard\/forgot-password">Forgot password\?<\/a>/);
+});
+
+test('password updates invalidate old session and reset-token versions', async () => {
+  const storage = new InMemoryStorage();
+  await storage.createUser({
+    username: 'alice',
+    displayName: 'Alice',
+    passwordHash: 'old-hash',
+    emailHash: 'email-hash',
+    role: 'user',
+    createdAt: new Date().toISOString()
+  });
+  const before = await storage.getUser('alice');
+  const token = createPasswordResetToken(before, 'identity-secret', 1000);
+
+  await storage.updateUserPassword('alice', 'new-hash');
+  const after = await storage.getUser('alice');
+  const claims = verifyPasswordResetToken(token, 'identity-secret', 2000);
+
+  assert.equal(before.sessionVersion, 1);
+  assert.equal(after.sessionVersion, 2);
+  assert.notEqual(claims.sessionVersion, after.sessionVersion);
 });

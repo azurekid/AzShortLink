@@ -1,6 +1,7 @@
 'use strict';
 
 const { TableClient } = require('@azure/data-tables');
+const crypto = require('node:crypto');
 const { retentionCutoffIso, generateAuditRowKey } = require('../core/audit');
 const { appendHelpMessage, formatTicketNumber, getHelpMessages } = require('../services/helpRequests');
 
@@ -10,6 +11,7 @@ const APIKEY_PARTITION_KEY = 'APIKEY';
 const PASSKEY_PARTITION_KEY = 'PASSKEY';
 const INVITE_PARTITION_KEY = 'INVITE';
 const HELP_PARTITION_KEY = 'HELP';
+const RATE_LIMIT_PARTITION_KEY = 'RATE_LIMIT';
 const AUDIT_PARTITION_KEY = 'AUDIT';
 
 function parseAgentStats(value) {
@@ -67,7 +69,8 @@ class TableStorage {
         signupIpHash: identity.signupIpHash || '',
         signupDeviceHash: identity.signupDeviceHash || '',
         riskFlags: JSON.stringify(identity.riskFlags || []),
-        branchSuspended: Boolean(identity.branchSuspended)
+        branchSuspended: Boolean(identity.branchSuspended),
+        sessionVersion: Number(identity.sessionVersion) || 1
       });
     } catch (err) {
       if (err && (err.statusCode === 409 || err.code === 'EntityAlreadyExists')) {
@@ -109,7 +112,8 @@ class TableStorage {
         branchSuspended: Boolean(item.branchSuspended),
         apiKeyHash: item.apiKeyHash || '',
         apiKeyPrefix: item.apiKeyPrefix || '',
-        apiKeyCreatedAt: item.apiKeyCreatedAt || ''
+        apiKeyCreatedAt: item.apiKeyCreatedAt || '',
+        sessionVersion: Number(item.sessionVersion) || 1
       };
     } catch (err) {
       if (err && err.statusCode === 404) {
@@ -140,7 +144,8 @@ class TableStorage {
         riskFlags: JSON.parse(item.riskFlags || '[]'),
         branchSuspended: Boolean(item.branchSuspended),
         createdAt: item.createdAt || '',
-        apiKeyPrefix: item.apiKeyPrefix || ''
+        apiKeyPrefix: item.apiKeyPrefix || '',
+        sessionVersion: Number(item.sessionVersion) || 1
       });
     }
 
@@ -154,6 +159,68 @@ class TableStorage {
     });
     for await (const item of entities) return this.getUser(item.rowKey);
     return null;
+  }
+
+  async countRecentRateLimitAttempts(rateKey, sinceIso) {
+    const escapedKey = String(rateKey).replaceAll("'", "''");
+    const escapedSince = String(sinceIso).replaceAll("'", "''");
+    const entities = this.usersClient.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${RATE_LIMIT_PARTITION_KEY}' and rateKey eq '${escapedKey}' and attemptedAt ge '${escapedSince}'` }
+    });
+    let count = 0;
+    for await (const item of entities) {
+      if (item.rateKey === rateKey && item.attemptedAt >= sinceIso) count += 1;
+    }
+    return count;
+  }
+
+  async recordRateLimitAttempt(rateKey, attemptedAt) {
+    await this.usersClient.createEntity({
+      partitionKey: RATE_LIMIT_PARTITION_KEY,
+      rowKey: `${Date.now()}-${crypto.randomUUID()}`,
+      rateKey,
+      attemptedAt
+    });
+  }
+
+  async clearRateLimitAttempts(rateKey) {
+    const escapedKey = String(rateKey).replaceAll("'", "''");
+    const entities = this.usersClient.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${RATE_LIMIT_PARTITION_KEY}' and rateKey eq '${escapedKey}'` }
+    });
+    const deletions = [];
+    for await (const item of entities) {
+      if (item.rateKey === rateKey) deletions.push(this.usersClient.deleteEntity(RATE_LIMIT_PARTITION_KEY, item.rowKey));
+    }
+    await Promise.all(deletions);
+  }
+
+  async consumeRateLimit(rateKey, maxRequests, windowMs, now = Date.now()) {
+    const bucket = Math.floor(now / windowMs);
+    const rowKey = `${rateKey}-${bucket}`;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const item = await this.usersClient.getEntity(RATE_LIMIT_PARTITION_KEY, rowKey);
+        const count = Number(item.count) || 0;
+        if (count >= maxRequests) {
+          return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(((bucket + 1) * windowMs - now) / 1000)) };
+        }
+        await this.usersClient.updateEntity({ ...item, count: count + 1 }, 'Replace', { etag: item.etag });
+        return { allowed: true, retryAfterSeconds: 0 };
+      } catch (err) {
+        if (err && err.statusCode === 404) {
+          try {
+            await this.usersClient.createEntity({ partitionKey: RATE_LIMIT_PARTITION_KEY, rowKey, rateKey, bucket, count: 1 });
+            return { allowed: true, retryAfterSeconds: 0 };
+          } catch (createError) {
+            if (!createError || (createError.statusCode !== 409 && createError.code !== 'EntityAlreadyExists')) throw createError;
+          }
+        } else if (!err || err.statusCode !== 412) {
+          throw err;
+        }
+      }
+    }
+    return { allowed: false, retryAfterSeconds: 1 };
   }
 
   async updateUserIdentity(userId, changes) {
@@ -190,8 +257,10 @@ class TableStorage {
 
   async updateUserPassword(userId, passwordHash) {
     try {
+      const user = await this.getUser(userId);
+      if (!user) return false;
       await this.usersClient.updateEntity(
-        { partitionKey: USER_PARTITION_KEY, rowKey: String(userId).trim(), passwordHash },
+        { partitionKey: USER_PARTITION_KEY, rowKey: String(userId).trim(), passwordHash, sessionVersion: (Number(user.sessionVersion) || 1) + 1 },
         'Merge'
       );
       return true;
@@ -519,13 +588,15 @@ class TableStorage {
     }
   }
 
-  static async create(connectionString, tableNames) {
+  static async create(storageConfig, tableNames) {
     const names = typeof tableNames === 'string'
       ? { links: tableNames, users: `${tableNames}Users`, audit: `${tableNames}Audit` }
       : tableNames;
 
     async function createClient(name) {
-      const client = TableClient.fromConnectionString(connectionString, name);
+      const client = storageConfig.connectionString
+        ? TableClient.fromConnectionString(storageConfig.connectionString, name)
+        : new TableClient(storageConfig.endpoint, name, storageConfig.credential);
       try {
         await client.createTable();
       } catch (err) {

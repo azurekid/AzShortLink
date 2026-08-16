@@ -3,15 +3,18 @@
 const { InMemoryStorage } = require('./inMemoryStorage');
 const { TableStorage } = require('./tableStorage');
 const { UnavailableStorage } = require('./unavailableStorage');
+const { DefaultAzureCredential } = require('@azure/identity');
 
 async function createStorage(config) {
   let storage;
-  if (!config.storageConnectionString) {
+  if (!config.storageConnectionString && !config.storageTableEndpoint) {
     console.warn('[storage] Azure Storage connection string missing; using in-memory storage.');
     storage = new InMemoryStorage({ tableName: config.tableName });
   } else {
     try {
-      storage = await TableStorage.create(config.storageConnectionString, {
+      storage = await TableStorage.create(config.storageConnectionString
+        ? { connectionString: config.storageConnectionString }
+        : { endpoint: config.storageTableEndpoint, credential: new DefaultAzureCredential() }, {
         links: config.tableName,
         users: config.usersTableName,
         audit: config.auditTableName

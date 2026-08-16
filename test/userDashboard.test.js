@@ -106,7 +106,7 @@ test('does not expose any admin-only markup or script to a non-admin user', () =
 
 test('inline dashboard script is syntactically valid JavaScript', () => {
   const html = renderUserDashboard('https://azhk.in', { user: { username: 'x', displayName: 'X', role: 'user' } });
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const script = html.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1];
 
   // Throws a SyntaxError if a template-literal escaping bug (e.g. a bare \n or \r\n)
   // broke a nested string/regex literal across a real line break.
@@ -127,7 +127,8 @@ test('uses the azurehacking favicon and background artwork', () => {
 
   assert.match(html, /azurehacking\.com\/images\/favicon\.svg/);
   assert.match(html, /href="\/assets\/css\/dashboard\.css"/);
-  assert.match(html, /font-awesome/);
+  assert.match(html, /\/vendor\/css\/fontawesome\.min\.css/);
+  assert.match(html, /\/vendor\/leaflet\/leaflet\.js/);
   assert.match(html, /class="bg-layer"/);
 });
 

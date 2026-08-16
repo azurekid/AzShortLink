@@ -14,9 +14,9 @@ const HEAD_ASSETS = `  <link rel="icon" type="image/svg+xml" href="${FAVICON_URL
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>`;
+  <link rel="stylesheet" href="/vendor/css/fontawesome.min.css" />
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" />
+  <script src="/vendor/leaflet/leaflet.js"></script>`;
 
 // Shared building blocks so the "look and feel" stays consistent between the user and admin
 // dashboards, while each of those keeps its own template/script - see src/dashboard/user.js

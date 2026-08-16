@@ -47,7 +47,7 @@ function sign(payload, sessionSecret) {
 function createSessionToken(user, sessionSecret) {
   const expiresAt = Date.now() + SESSION_TTL_SECONDS * 1000;
   const claims = Buffer.from(
-    JSON.stringify({ id: user.id, username: user.username, displayName: user.displayName, role: user.role })
+    JSON.stringify({ id: user.id, username: user.username, displayName: user.displayName, role: user.role, sessionVersion: Number(user.sessionVersion) || 1 })
   ).toString('base64url');
   const payload = `${claims}.${expiresAt}`;
   const signature = sign(payload, sessionSecret);
@@ -146,10 +146,6 @@ function generateApiKey() {
   return { key, hash: hashApiKey(key), displayPrefix: key.slice(0, 12) };
 }
 
-function generateTemporaryPassword() {
-  return `${crypto.randomBytes(15).toString('base64url')}!9aA`;
-}
-
 function hashApiKey(key) {
   return crypto.createHash('sha256').update(String(key)).digest('hex');
 }
@@ -166,7 +162,6 @@ module.exports = {
   getSessionIdentity,
   isDashboardSessionValid,
   generateApiKey,
-  generateTemporaryPassword,
   hashApiKey,
   timingSafeEqualString
 };

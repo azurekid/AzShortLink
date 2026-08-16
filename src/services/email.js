@@ -103,18 +103,16 @@ function buildVerificationEmailContent({ username, verificationUrl }) {
   return { subject: 'Verify your AzShortLink account', plainText, html };
 }
 
-function buildPasswordResetEmailContent({ username, temporaryPassword }) {
+function buildPasswordResetEmailContent({ username, resetUrl }) {
   const safeUsername = escapeHtml(username);
-  const safeTemporaryPassword = escapeHtml(temporaryPassword);
+  const safeResetUrl = escapeHtml(resetUrl);
   const plainText = [
     `Hi ${username},`,
     '',
-    'A temporary password was generated for your AzShortLink account:',
-    temporaryPassword,
+    'Use this one-time link within 30 minutes to choose a new password:',
+    resetUrl,
     '',
-    'Sign in with your case-sensitive username and this temporary password, then change it immediately from the Account tab.',
-    '',
-    'If you did not request this reset, contact an administrator through the Help tab after signing in.'
+    'If you did not request this reset, ignore this email. Your password has not been changed.'
   ].join('\n');
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AzShortLink temporary password</title></head>
@@ -122,10 +120,10 @@ function buildPasswordResetEmailContent({ username, temporaryPassword }) {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background-color:#eef2f5"><tr><td align="center" style="padding:32px 12px">
     <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background-color:#fff;border:1px solid #d7e0e7">
       <tr><td style="padding:24px 32px;background-color:#17212b;border-bottom:4px solid #00a4ef;color:#fff"><strong style="font-size:23px">AzShortLink</strong><div style="margin-top:6px;color:#b9c8d4;font-size:13px">Password reset</div></td></tr>
-      <tr><td style="padding:32px"><h1 style="margin:0 0 16px;font-size:24px">Hi ${safeUsername},</h1><p style="color:#405261;line-height:24px">Use this temporary password to sign in:</p>
-        <div style="margin:24px 0;padding:18px;background-color:#f4f8fb;border-left:4px solid #00a4ef;font-family:Consolas,monospace;font-size:20px;font-weight:bold;word-break:break-all">${safeTemporaryPassword}</div>
-        <p style="color:#405261;line-height:24px">Your username is case-sensitive. Change this password immediately from the Account tab after signing in.</p>
-        <p style="margin-bottom:0;color:#627482;font-size:13px;line-height:20px">If you did not request this reset, sign in and contact an administrator through the Help tab.</p>
+      <tr><td style="padding:32px"><h1 style="margin:0 0 16px;font-size:24px">Hi ${safeUsername},</h1><p style="color:#405261;line-height:24px">Use this one-time link within 30 minutes to choose a new password.</p>
+        <p style="margin:24px 0"><a href="${safeResetUrl}" style="display:inline-block;padding:14px 24px;background:#0078d4;color:#fff;text-decoration:none;font-weight:bold">Reset password</a></p>
+        <p style="word-break:break-all;font-size:12px"><a href="${safeResetUrl}" style="color:#0067b8">${safeResetUrl}</a></p>
+        <p style="margin-bottom:0;color:#627482;font-size:13px;line-height:20px">If you did not request this reset, ignore this email. Your password has not been changed.</p>
       </td></tr>
     </table>
   </td></tr></table>
@@ -133,7 +131,7 @@ function buildPasswordResetEmailContent({ username, temporaryPassword }) {
   return { subject: 'Your AzShortLink temporary password', plainText, html };
 }
 
-async function sendPasswordResetEmail(config, { recipient, username, displayName, temporaryPassword }) {
+async function sendPasswordResetEmail(config, { recipient, username, displayName, resetUrl }) {
   if (!config.emailConnectionString || !config.emailSenderAddress) {
     const err = new Error('Password reset email delivery is not configured.');
     err.code = 'EMAIL_NOT_CONFIGURED';
@@ -145,7 +143,7 @@ async function sendPasswordResetEmail(config, { recipient, username, displayName
     const poller = await client.beginSend({
       senderAddress: config.emailSenderAddress,
       recipients: { to: [{ address: recipient, displayName }] },
-      content: buildPasswordResetEmailContent({ username, temporaryPassword })
+      content: buildPasswordResetEmailContent({ username, resetUrl })
     });
     const result = await poller.pollUntilDone();
     if (result && result.status && String(result.status).toLowerCase() !== 'succeeded') throw new Error('Email delivery did not succeed.');

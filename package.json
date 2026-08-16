@@ -14,10 +14,14 @@
     "@azure/communication-email": "^1.1.0",
     "@azure/data-tables": "^13.3.1",
     "@azure/functions": "^4.7.1",
+    "@azure/identity": "4.13.1",
+    "@fortawesome/fontawesome-free": "6.7.2",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "bcryptjs": "^3.0.3",
     "geoip-lite": "^2.0.3",
-    "qrcode": "^1.5.4"
+    "leaflet": "1.9.4",
+    "qrcode": "^1.5.4",
+    "swagger-ui-dist": "5.28.1"
   }
 }

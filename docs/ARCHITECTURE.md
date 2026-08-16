@@ -166,7 +166,7 @@ No time-series chart is shown because storage contains cumulative counters rathe
 
 ## Secret Management
 
-Bicep creates an RBAC-enabled Key Vault and grants the Function identity `Key Vault Secrets User`. Versionless references resolve the storage connection, API key, password hash, session secret, identity hash secret, and ACS connection string.
+Bicep creates an RBAC-enabled Key Vault and grants the Function identity `Key Vault Secrets User`. Versionless references resolve the API key, password hash, session secret, identity hash secret, and ACS connection string. Storage access uses managed identity with Shared Key disabled; password-reset requests are processed asynchronously through an Azure Storage Queue.
 
 Public URL, sender address, table names, and rate-limit values remain normal settings.
 

@@ -43,13 +43,15 @@ param dashboardUsername string = ''
 @secure()
 param dashboardPasswordHash string = ''
 
-@description('Optional: random secret used to sign dashboard session cookies (generate with openssl rand -hex 32). If left empty, it is auto-derived from dashboardPasswordHash and apiKey - set explicitly if you want to invalidate all sessions independently of rotating the password.')
+@description('Random secret used to sign dashboard session cookies (generate with openssl rand -hex 32).')
 @secure()
-param dashboardSessionSecret string = ''
+@minLength(32)
+param dashboardSessionSecret string
 
 @description('Secret HMAC key used to hash verified identities and risk signals. Generate with openssl rand -hex 32.')
 @secure()
-param identityHashSecret string = ''
+@minLength(32)
+param identityHashSecret string
 
 @description('Azure Communication Services connection string used for verification email delivery.')
 @secure()
@@ -81,6 +83,9 @@ param localDevCorsAllowedOrigins array = [
   'http://localhost:7071'
 ]
 
+@description('Include local development origins in deployed CORS. Keep false for production.')
+param includeLocalDevCorsOrigins bool = false
+
 // ── Unique suffix so resource names don't collide across deployments ──────────
 var suffix = uniqueString(resourceGroup().id, prefix)
 var storageAccountName = toLower('st${prefix}${take(suffix, 8)}')
@@ -88,7 +93,48 @@ var appServicePlanName = 'asp-${prefix}-${take(suffix, 8)}'
 var functionAppName = 'func-${prefix}-${take(suffix, 8)}'
 var appInsightsName = 'appi-${prefix}-${take(suffix, 8)}'
 var keyVaultName = 'kv-${prefix}-${take(suffix, 8)}'
+var virtualNetworkName = 'vnet-${prefix}-${take(suffix, 8)}'
 var keyVaultSecretsUserRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+var storageAccountContributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '17d1049b-9a84-46fb-8f53-869881c3d3ab')
+var storageBlobDataOwnerRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b')
+var storageQueueDataContributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '974c5e8b-45b9-4653-ba55-5f855dd0fb88')
+var storageTableDataContributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
+
+resource virtualNetwork 'Microsoft.Network/virtualNetworks@2023-09-01' = {
+  name: virtualNetworkName
+  location: location
+  properties: {
+    addressSpace: {
+      addressPrefixes: [
+        '10.42.0.0/16'
+      ]
+    }
+  }
+}
+
+resource appIntegrationSubnet 'Microsoft.Network/virtualNetworks/subnets@2023-09-01' = {
+  parent: virtualNetwork
+  name: 'app-integration'
+  properties: {
+    addressPrefix: '10.42.1.0/24'
+    delegations: [
+      {
+        name: 'webapp-delegation'
+        properties: {
+          serviceName: 'Microsoft.Web/serverFarms'
+        }
+      }
+    ]
+    serviceEndpoints: [
+      {
+        service: 'Microsoft.Storage'
+      }
+      {
+        service: 'Microsoft.KeyVault'
+      }
+    ]
+  }
+}
 
 // ── Storage Account ───────────────────────────────────────────────────────────
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
@@ -102,12 +148,36 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
     supportsHttpsTrafficOnly: true
     minimumTlsVersion: 'TLS1_2'
     allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true
+    publicNetworkAccess: 'Enabled'
+    networkAcls: {
+      bypass: 'AzureServices'
+      defaultAction: 'Deny'
+      virtualNetworkRules: [
+        {
+          id: appIntegrationSubnet.id
+          action: 'Allow'
+        }
+      ]
+      ipRules: []
+    }
   }
 }
 
 resource shortLinkTableService 'Microsoft.Storage/storageAccounts/tableServices@2023-01-01' = {
   parent: storageAccount
   name: 'default'
+}
+
+resource storageQueueService 'Microsoft.Storage/storageAccounts/queueServices@2023-01-01' = {
+  parent: storageAccount
+  name: 'default'
+}
+
+resource passwordResetQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-01-01' = {
+  parent: storageQueueService
+  name: 'password-resets'
 }
 
 // Links, users/credentials and the audit trail are stored in separate tables (not just
@@ -128,13 +198,11 @@ resource auditTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023
   name: auditTableName
 }
 
-var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
-var effectiveCorsOrigins = union(corsAllowedOrigins, localDevCorsAllowedOrigins)
+var effectiveCorsOrigins = includeLocalDevCorsOrigins ? union(corsAllowedOrigins, localDevCorsAllowedOrigins) : corsAllowedOrigins
 
 // Versionless references automatically pick up the newest secret version after App Service's
 // Key Vault reference cache refreshes, without changing Function App configuration.
 var keyVaultSecretBaseUri = 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets'
-var storageConnectionStringReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/azure-webjobs-storage/)'
 var apiKeyReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/shortlink-api-key/)'
 var dashboardPasswordHashReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/dashboard-password-hash/)'
 var dashboardSessionSecretReference = '@Microsoft.KeyVault(SecretUri=${keyVaultSecretBaseUri}/dashboard-session-secret/)'
@@ -152,18 +220,20 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enableSoftDelete: true
     softDeleteRetentionInDays: 90
     publicNetworkAccess: 'Enabled'
+    networkAcls: {
+      bypass: 'AzureServices'
+      defaultAction: 'Deny'
+      virtualNetworkRules: [
+        {
+          id: appIntegrationSubnet.id
+        }
+      ]
+      ipRules: []
+    }
     sku: {
       family: 'A'
       name: 'standard'
     }
-  }
-}
-
-resource storageConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
-  name: 'azure-webjobs-storage'
-  properties: {
-    value: storageConnectionString
   }
 }
 
@@ -240,7 +310,6 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   location: location
   kind: 'functionapp,linux'
   dependsOn: [
-    storageConnectionStringSecret
     apiKeySecret
     dashboardPasswordHashSecret
     dashboardSessionSecretResource
@@ -252,22 +321,37 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   }
   properties: {
     serverFarmId: appServicePlan.id
+    virtualNetworkSubnetId: appIntegrationSubnet.id
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'NODE|22'
       functionAppScaleLimit: 200
+      minTlsVersion: '1.2'
+      scmMinTlsVersion: '1.2'
+      ftpsState: 'Disabled'
+      http20Enabled: true
+      remoteDebuggingEnabled: false
+      vnetRouteAllEnabled: true
       cors: {
         allowedOrigins: effectiveCorsOrigins
         supportCredentials: false
       }
       appSettings: [
         {
-          name: 'AzureWebJobsStorage'
-          value: storageConnectionStringReference
+          name: 'AzureWebJobsStorage__accountName'
+          value: storageAccount.name
         }
         {
-          name: 'AZURE_STORAGE_CONNECTION_STRING'
-          value: storageConnectionStringReference
+          name: 'AzureWebJobsStorage__credential'
+          value: 'managedidentity'
+        }
+        {
+          name: 'AZURE_STORAGE_TABLE_ENDPOINT'
+          value: 'https://${storageAccount.name}.table.${environment().suffixes.storage}'
+        }
+        {
+          name: 'AZURE_STORAGE_QUEUE_ENDPOINT'
+          value: 'https://${storageAccount.name}.queue.${environment().suffixes.storage}'
         }
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
@@ -351,6 +435,46 @@ resource functionKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@20
     principalId: functionApp.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: keyVaultSecretsUserRoleDefinitionId
+  }
+}
+
+resource functionStorageAccountContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionApp.id, storageAccountContributorRoleDefinitionId)
+  scope: storageAccount
+  properties: {
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: storageAccountContributorRoleDefinitionId
+  }
+}
+
+resource functionStorageBlobDataOwner 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionApp.id, storageBlobDataOwnerRoleDefinitionId)
+  scope: storageAccount
+  properties: {
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: storageBlobDataOwnerRoleDefinitionId
+  }
+}
+
+resource functionStorageQueueDataContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionApp.id, storageQueueDataContributorRoleDefinitionId)
+  scope: storageAccount
+  properties: {
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: storageQueueDataContributorRoleDefinitionId
+  }
+}
+
+resource functionStorageTableDataContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionApp.id, storageTableDataContributorRoleDefinitionId)
+  scope: storageAccount
+  properties: {
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: storageTableDataContributorRoleDefinitionId
   }
 }
 

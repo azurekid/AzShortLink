@@ -10,7 +10,7 @@ function renderApiDocsPage() {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AzShortLink API Reference</title>
 ${HEAD_ASSETS}
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <link rel="stylesheet" href="/vendor/swagger/swagger-ui.css" />
   <link rel="stylesheet" href="/assets/css/api-docs.css" />
   <link rel="stylesheet" href="/assets/css/custom.css" />
 </head>
@@ -30,17 +30,8 @@ ${HEAD_ASSETS}
       <div id="swagger-ui"></div>
     </section>
   </main>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-  <script>
-    window.ui = SwaggerUIBundle({
-      url: '/openapi.json',
-      dom_id: '#swagger-ui',
-      deepLinking: true,
-      persistAuthorization: true,
-      presets: [SwaggerUIBundle.presets.apis],
-      layout: 'BaseLayout'
-    });
-  </script>
+  <script src="/vendor/swagger/swagger-ui-bundle.js"></script>
+  <script src="/assets/js/api-docs.js"></script>
 </body>
 </html>`;
 }
