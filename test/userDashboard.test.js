@@ -34,6 +34,8 @@ test('renders statistics, account and delete controls', () => {
   assert.match(html, /data-panel="panel-account"/);
   assert.match(html, /id="password-form"/);
   assert.match(html, /data-delete/);
+  assert.match(html, /azshortlink-' \+ code \+ '-qr\.png/);
+  assert.match(html, /title="Download QR code"/);
 });
 
 test('does not show the admin invites-management panel', () => {
@@ -65,6 +67,9 @@ test('does not expose any admin-only markup or script to a non-admin user', () =
   });
 
   assert.doesNotMatch(html, /data-panel="panel-admin"/);
+  assert.doesNotMatch(html, /data-panel="panel-profiles"/);
+  assert.doesNotMatch(html, /data-panel="panel-invites"/);
+  assert.doesNotMatch(html, /data-panel="panel-operations"/);
   assert.doesNotMatch(html, /data-panel="panel-audit"/);
   assert.doesNotMatch(html, /loadUsers/);
   assert.doesNotMatch(html, /loadInvites/);
@@ -114,4 +119,6 @@ test('exposes personal API key controls and graphical breakdowns', () => {
   assert.match(html, /id="bars-browsers"/);
   assert.match(html, /id="bars-devices"/);
   assert.match(html, /id="bars-referrers"/);
+  assert.match(html, /id="usage-donut"/);
+  assert.match(html, /id="columns-links"/);
 });

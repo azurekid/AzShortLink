@@ -90,6 +90,17 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           </div>
           <div id="analytics-status" class="status" role="status" aria-live="polite"></div>
         </section>
+        <section class="card analytics-chart-card">
+          <div class="card-header"><h2><i class="fas fa-chart-pie"></i>Link utilization</h2></div>
+          <div class="donut-wrap">
+            <div id="usage-donut" class="donut-chart"><div class="donut-center"><strong id="usage-percentage">0%</strong><span>used</span></div></div>
+            <div class="chart-legend"><span><i class="legend-dot"></i><strong id="usage-used">0</strong> used</span><span><i class="legend-dot unused"></i><strong id="usage-unused">0</strong> unused</span></div>
+          </div>
+        </section>
+        <section class="card analytics-chart-card">
+          <div class="card-header"><h2><i class="fas fa-chart-column"></i>Redirects by top link</h2></div>
+          <div id="columns-links" class="column-chart"><p>No redirect data yet.</p></div>
+        </section>
         <section class="card">
           <div class="card-header"><h2><i class="fas fa-ranking-star"></i>Top links</h2></div>
           <div class="bar-list" id="bars-links"><p>No data yet.</p></div>

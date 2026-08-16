@@ -35,7 +35,9 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       { panel: 'panel-links', label: 'Links', icon: 'link' },
       { panel: 'panel-analytics', label: 'Statistics', icon: 'chart-bar' },
       { panel: 'panel-account', label: 'Account', icon: 'user' },
-      { panel: 'panel-admin', label: 'Admin', icon: 'user-shield' },
+      { panel: 'panel-profiles', label: 'Profiles', icon: 'users' },
+      { panel: 'panel-invites', label: 'Invites', icon: 'user-plus' },
+      { panel: 'panel-operations', label: 'Operations', icon: 'gauge-high' },
       { panel: 'panel-audit', label: 'Audit trail', icon: 'shield-halved' }
     ])}
 
@@ -85,6 +87,17 @@ ${renderDocumentHead('AzShortLink Dashboard')}
             <div class="stat"><div class="stat-icon orange"><i class="fas fa-fire"></i></div><div><span class="stat-value" id="stat-most-viewed">-</span><span class="stat-label">Most viewed</span></div></div>
           </div>
           <div id="analytics-status" class="status" role="status" aria-live="polite"></div>
+        </section>
+        <section class="card analytics-chart-card">
+          <div class="card-header"><h2><i class="fas fa-chart-pie"></i>Link utilization</h2></div>
+          <div class="donut-wrap">
+            <div id="usage-donut" class="donut-chart"><div class="donut-center"><strong id="usage-percentage">0%</strong><span>used</span></div></div>
+            <div class="chart-legend"><span><i class="legend-dot"></i><strong id="usage-used">0</strong> used</span><span><i class="legend-dot unused"></i><strong id="usage-unused">0</strong> unused</span></div>
+          </div>
+        </section>
+        <section class="card analytics-chart-card">
+          <div class="card-header"><h2><i class="fas fa-chart-column"></i>Redirects by top link</h2></div>
+          <div id="columns-links" class="column-chart"><p>No redirect data yet.</p></div>
         </section>
         <section class="card">
           <div class="card-header"><h2><i class="fas fa-ranking-star"></i>Top links</h2></div>
@@ -152,14 +165,12 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       </div>
     </section>
 
-    <section id="panel-admin" class="tab-panel" role="tabpanel" hidden>
+    <section id="panel-profiles" class="tab-panel" role="tabpanel" hidden>
       <div class="content-grid">
         <section class="card span-full">
           <div class="card-header"><h2>Profiles</h2><button id="load-users" class="button-secondary button-compact" type="button">Refresh</button></div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Sponsor</th><th>Depth</th><th>Links</th><th>Created</th><th></th></tr></thead>
-            <tbody id="users-body"><tr><td colspan="8">No profiles loaded yet.</td></tr></tbody>
-          </table></div>
+          <p class="section-lead">Review identity state, invitation ancestry, activity, and account access.</p>
+          <div id="users-body" class="profile-list"><p>No profiles loaded yet.</p></div>
         </section>
         <section class="card" id="user-panel">
           <div class="card-header"><h2>Add user</h2></div>
@@ -184,16 +195,28 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           </form>
           <div id="reset-password-status" class="status" role="status" aria-live="polite"></div>
         </section>
+      </div>
+    </section>
+
+    <section id="panel-invites" class="tab-panel" role="tabpanel" hidden>
+      <div class="content-grid">
         <section class="card span-full">
           <div class="card-header"><h2>Invite links</h2><button id="create-invite" class="button-secondary button-compact" type="button">Create invite link</button></div>
+          <p class="section-lead">Track active and redeemed invitations across every sponsor.</p>
           <div id="invite-status" class="status" role="status" aria-live="polite"></div>
           <div class="table-wrap"><table>
             <thead><tr><th>Invite URL</th><th>Created by</th><th>Created</th><th>Status</th><th></th></tr></thead>
             <tbody id="invites-body"><tr><td colspan="5">No invite links loaded yet.</td></tr></tbody>
           </table></div>
         </section>
-        <section class="card">
+      </div>
+    </section>
+
+    <section id="panel-operations" class="tab-panel" role="tabpanel" hidden>
+      <div class="content-grid">
+        <section class="card span-full">
           <div class="card-header"><h2>Service health</h2><button id="load-health" class="button-secondary button-compact" type="button">Check</button></div>
+          <p class="section-lead">Inspect runtime storage and configuration readiness.</p>
           <div id="health-body" class="stack"><p>Run a health check to view storage and configuration state.</p></div>
         </section>
       </div>
@@ -246,7 +269,8 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     colspan: 6,
     ownerColumnScript: "const owner = '<td>' + escapeHtml(item.ownerId || '-') + '</td>';",
     tabDispatch: `if (tab.dataset.panel === 'panel-analytics') loadAnalytics();
-        if (tab.dataset.panel === 'panel-admin') { loadUsers(); loadInvites(); }
+      if (tab.dataset.panel === 'panel-profiles') loadUsers();
+      if (tab.dataset.panel === 'panel-invites') loadInvites();
         if (tab.dataset.panel === 'panel-audit') loadAuditLog();
         if (tab.dataset.panel === 'panel-account') loadProfile();`
   })}
@@ -255,7 +279,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       if (!body) return;
       try {
         const data = await apiRequest('/api/users');
-        if (!data.users.length) { body.innerHTML = '<tr><td colspan="8">No profiles found.</td></tr>'; return; }
+        if (!data.users.length) { body.innerHTML = '<p>No profiles found.</p>'; return; }
         body.innerHTML = data.users.map((item) => {
           const isSelf = item.username === CURRENT_USERNAME;
           const accessAction = item.status === 'pending_approval'
@@ -267,13 +291,19 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           const branchAction = '<button class="button-secondary button-compact" type="button" data-branch-user="' + escapeHtml(item.username) + '" data-suspended="' + (!item.branchSuspended) + '">' + (item.branchSuspended ? 'Restore branch' : 'Suspend branch') + '</button> ';
           const actions = accessAction + roleAction + branchAction + '<button class="button-secondary button-compact" type="button" data-reset-user="' + escapeHtml(item.username) + '">Reset password</button>' +
             (isSelf ? '' : ' <button class="button-danger button-compact" type="button" data-delete-user="' + escapeHtml(item.username) + '">Delete</button>');
-          return '<tr><td class="mono" title="' + escapeHtml(item.displayName || '') + '">' + escapeHtml(item.username) + '</td>' +
-            '<td><span class="pill ' + (item.role === 'admin' ? 'admin' : '') + '">' + escapeHtml(item.role) + '</span></td>' +
-            '<td>' + escapeHtml(item.status || 'active') + '</td><td class="mono">' + escapeHtml(item.invitedByUserId || '-') + '</td>' +
-            '<td>' + escapeHtml(item.inviteDepth || 0) + '</td><td>' + escapeHtml(item.linkCount ?? 0) + '</td><td>' + escapeHtml(item.createdAt || '-') + '</td>' +
-            '<td class="actions">' + actions + '</td></tr>';
+          const initial = escapeHtml((item.displayName || item.username || '?').slice(0, 1).toUpperCase());
+          const joined = item.createdAt ? String(item.createdAt).slice(0, 10) : '-';
+          const trustState = item.branchSuspended ? 'branch suspended' : (item.status || 'active');
+          return '<article class="profile-row">' +
+            '<div class="profile-identity"><span class="profile-avatar">' + initial + '</span><div class="profile-name"><strong>' + escapeHtml(item.displayName || item.username) + '</strong><span class="mono">' + escapeHtml(item.username) + '</span></div></div>' +
+            '<div class="profile-meta">' +
+              '<div class="profile-fact"><span>Access</span><strong><span class="pill ' + (item.role === 'admin' ? 'admin' : '') + '">' + escapeHtml(item.role) + '</span></strong></div>' +
+              '<div class="profile-fact"><span>Trust</span><strong>' + escapeHtml(trustState) + '</strong></div>' +
+              '<div class="profile-fact"><span>Sponsor / depth</span><strong title="' + escapeHtml(item.invitedByUserId || 'Root profile') + '">' + escapeHtml(item.invitedByUserId || 'root') + ' / ' + escapeHtml(item.inviteDepth || 0) + '</strong></div>' +
+              '<div class="profile-fact"><span>Activity / joined</span><strong>' + escapeHtml(item.linkCount ?? 0) + ' links / ' + escapeHtml(joined) + '</strong></div>' +
+            '</div><div class="profile-actions">' + actions + '</div></article>';
         }).join('');
-      } catch (error) { body.innerHTML = '<tr><td colspan="8">' + escapeHtml(error.message) + '</td></tr>'; }
+      } catch (error) { body.innerHTML = '<p class="status error">' + escapeHtml(error.message) + '</p>'; }
     }
     const loadUsersButton = document.getElementById('load-users');
     if (loadUsersButton) loadUsersButton.addEventListener('click', loadUsers);

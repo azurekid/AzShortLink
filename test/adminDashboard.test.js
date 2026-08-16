@@ -5,17 +5,21 @@ const assert = require('node:assert/strict');
 
 const { renderAdminDashboard } = require('../src/dashboard/admin');
 
-test('shows admin-only profile and health panels for admins', () => {
+test('splits admin management into focused profile, invite, and operations tabs', () => {
   const html = renderAdminDashboard('https://azhk.in', {
     user: { username: 'Admin', displayName: 'Admin', role: 'admin' }
   });
 
-  assert.match(html, /data-panel="panel-admin"/);
+  assert.match(html, /data-panel="panel-profiles"/);
+  assert.match(html, /data-panel="panel-invites"/);
+  assert.match(html, /data-panel="panel-operations"/);
   assert.match(html, /id="users-body"/);
+  assert.match(html, /class="profile-list"/);
   assert.match(html, /id="health-body"/);
   assert.match(html, /All links/);
   assert.match(html, /<th>Owner<\/th>/);
   assert.match(html, /id="download-qr"/);
+  assert.match(html, /azshortlink-' \+ code \+ '-qr\.png/);
 });
 
 test('shows an invite links panel to admins listing every invite, not just their own', () => {
@@ -76,4 +80,13 @@ test('uses the azurehacking favicon and background artwork', () => {
   assert.match(html, /azure-hacking-corp\.jpg/);
   assert.match(html, /font-awesome/);
   assert.match(html, /class="bg-layer"/);
+});
+
+test('renders visual statistics charts', () => {
+  const html = renderAdminDashboard('https://azhk.in');
+
+  assert.match(html, /id="usage-donut"/);
+  assert.match(html, /id="columns-links"/);
+  assert.match(html, /renderUsageDonut/);
+  assert.match(html, /renderColumns/);
 });

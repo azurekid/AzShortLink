@@ -130,8 +130,27 @@ button i { margin-right:6px; }
 .stat-icon.orange { background:rgba(245,158,11,.12); color:var(--warn); }
 .stat-value { display:block; font-size:1.6rem; font-weight:700; color:var(--heading); font-family:"Share Tech Mono",monospace; line-height:1.2; overflow:hidden; text-overflow:ellipsis; }
 .stat-label { color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; }
+.analytics-chart-card { min-height:290px; }
+.donut-wrap { min-height:210px; display:grid; place-items:center; align-content:center; gap:14px; }
+.donut-chart {
+  width:156px; aspect-ratio:1; display:grid; place-items:center; border-radius:50%;
+  background:conic-gradient(var(--success) 0 var(--used-angle,0deg),rgba(239,68,68,.72) var(--used-angle,0deg) 360deg);
+  box-shadow:inset 0 0 22px rgba(0,0,0,.3),0 0 24px rgba(16,185,129,.12);
+}
+.donut-center { width:104px; aspect-ratio:1; display:grid; place-items:center; align-content:center; border-radius:50%; background:var(--surface); }
+.donut-center strong { color:var(--heading); font:700 1.7rem/1 "Share Tech Mono",monospace; }
+.donut-center span { color:var(--muted); font-size:.7rem; text-transform:uppercase; }
+.chart-legend { display:flex; flex-wrap:wrap; justify-content:center; gap:14px; color:var(--muted); font-size:.78rem; }
+.legend-dot { display:inline-block; width:8px; height:8px; margin-right:5px; border-radius:50%; background:var(--success); }
+.legend-dot.unused { background:var(--danger); }
+.column-chart { height:220px; display:flex; align-items:stretch; gap:10px; padding:8px 4px 0; border-bottom:1px solid var(--border); }
+.column-item { min-width:0; flex:1; display:grid; grid-template-rows:1fr auto; gap:7px; text-align:center; }
+.column-track { min-height:0; display:flex; align-items:flex-end; justify-content:center; }
+.column-fill { position:relative; width:min(42px,72%); min-height:3px; border-radius:5px 5px 0 0; background:linear-gradient(180deg,var(--accent),rgba(0,212,255,.3)); box-shadow:0 0 14px rgba(0,212,255,.16); }
+.column-label { min-width:0; color:var(--muted); font-size:.7rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.column-count { position:absolute; top:-21px; left:50%; transform:translateX(-50%); color:var(--heading); font:700 .72rem "Share Tech Mono",monospace; }
 .bar-list { display:grid; gap:10px; }
-.bar-row { display:grid; grid-template-columns:minmax(80px,120px) 1fr auto; align-items:center; gap:10px; font-size:.85rem; }
+.bar-row { display:grid; grid-template-columns:minmax(80px,120px) 1fr minmax(62px,auto); align-items:center; gap:10px; font-size:.85rem; }
 .bar-row span:first-child { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bar-track { height:12px; border-radius:999px; background:rgba(255,255,255,.05); overflow:hidden; }
 .bar-fill { height:100%; border-radius:999px; transition:width 600ms cubic-bezier(.4,0,.2,1); }
@@ -149,13 +168,40 @@ tbody tr:hover { background:rgba(0,212,255,.05); }
 .pill.admin { color:var(--accent-2); border-color:var(--accent-2); }
 .key-reveal { display:grid; gap:8px; margin-top:14px; padding:14px; border:1px solid var(--warn); border-radius:8px; background:rgba(245,158,11,.06); }
 .key-value { padding:10px 12px; border-radius:8px; background:var(--input); color:var(--accent); font-family:"Share Tech Mono",monospace; word-break:break-all; }
+.profile-list { display:grid; gap:10px; }
+.profile-row {
+  display:grid; grid-template-columns:minmax(170px,.8fr) minmax(320px,1.7fr) minmax(220px,1fr); gap:18px; align-items:center;
+  padding:16px; border:1px solid var(--border); border-radius:8px; background:var(--surface);
+}
+.profile-identity { min-width:0; display:grid; grid-template-columns:42px minmax(0,1fr); gap:11px; align-items:center; }
+.profile-avatar { width:42px; height:42px; display:grid; place-items:center; border:1px solid var(--accent); border-radius:50%; color:var(--accent); background:rgba(0,212,255,.08); font-weight:800; }
+.profile-name { min-width:0; }
+.profile-name strong,.profile-name span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.profile-name span { color:var(--muted); font-size:.78rem; }
+.profile-meta { display:grid; grid-template-columns:repeat(4,minmax(64px,1fr)); gap:10px; }
+.profile-fact { min-width:0; }
+.profile-fact > span { display:block; color:var(--muted); font-size:.67rem; text-transform:uppercase; }
+.profile-fact strong { display:block; margin-top:2px; color:var(--text); font-size:.8rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.profile-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+.profile-actions button { margin:0; }
+.section-lead { margin:-6px 0 16px; color:var(--muted); font-size:.88rem; }
 [hidden] { display:none !important; }
+@media (max-width:1050px) {
+  .profile-row { grid-template-columns:minmax(160px,.8fr) minmax(300px,1.4fr); }
+  .profile-actions { grid-column:1/-1; justify-content:flex-start; }
+}
 @media (max-width:780px) {
   .content-grid { grid-template-columns:1fr; }
   .app-header { flex-direction:column; align-items:flex-start; padding:14px 0; }
   .span-full { grid-column:auto; }
   .truncate { max-width:180px; }
   .bar-row { grid-template-columns:minmax(70px,90px) 1fr auto; }
+  .analytics-chart-card { min-height:250px; }
+  .column-chart { height:190px; gap:5px; }
+  .column-fill { width:70%; }
+  .profile-row { grid-template-columns:1fr; }
+  .profile-meta { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .profile-actions { grid-column:auto; }
 }`;
 
 // Shared building blocks so the "look and feel" stays consistent between the user and admin
@@ -231,10 +277,12 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
         const shortUrl = escapeHtml(item.shortUrl || BASE_URL + '/' + (item.code || ''));
         const target = escapeHtml(item.targetUrl || '');
         ${ownerColumnScript}
+        const qrUrl = '/api/links/' + encodeURIComponent(item.code || '') + '/qr';
         return '<tr><td><a href="' + shortUrl + '" target="_blank" rel="noopener noreferrer">' + shortUrl + '</a></td>' +
           '<td class="truncate" title="' + target + '">' + target + '</td>' + owner +
           '<td>' + escapeHtml(item.redirectCount || 0) + '</td><td>' + escapeHtml(item.lastAccessedAt || '-') + '</td>' +
-          '<td><button class="button-danger button-compact" type="button" data-delete="' + code + '">Delete</button></td></tr>';
+          '<td><div class="actions"><a class="button-link button-secondary button-compact" href="' + qrUrl + '" download="azshortlink-' + code + '-qr.png" title="Download QR code"><i class="fas fa-qrcode"></i><span>QR</span></a>' +
+          '<button class="button-danger button-compact" type="button" data-delete="' + code + '">Delete</button></div></td></tr>';
       }).join('');
     }
     async function loadStats() {
@@ -290,12 +338,35 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
       if (!container) return;
       if (!rows || !rows.length) { container.innerHTML = '<p>No data yet.</p>'; return; }
       const max = Math.max(...rows.map((row) => row.count), 1);
+      const total = Math.max(rows.reduce((sum, row) => sum + Number(row.count || 0), 0), 1);
       container.innerHTML = rows.map((row, index) => {
         const width = Math.max((row.count / max) * 100, 2);
+        const percentage = Math.round((row.count / total) * 100);
         const color = BAR_COLORS[index % BAR_COLORS.length];
         return '<div class="bar-row"><span title="' + escapeHtml(row.label) + '">' + escapeHtml(row.label) + '</span>' +
           '<span class="bar-track"><span class="bar-fill" style="width:' + width + '%;background:' + color + '"></span></span>' +
-          '<span class="bar-count">' + escapeHtml(row.count) + '</span></div>';
+          '<span class="bar-count">' + escapeHtml(row.count) + ' &middot; ' + percentage + '%</span></div>';
+      }).join('');
+    }
+    function renderUsageDonut(used, unused) {
+      const total = Math.max(Number(used || 0) + Number(unused || 0), 1);
+      const percentage = Math.round((Number(used || 0) / total) * 100);
+      document.getElementById('usage-donut').style.setProperty('--used-angle', (percentage * 3.6) + 'deg');
+      document.getElementById('usage-percentage').textContent = percentage + '%';
+      document.getElementById('usage-used').textContent = used || 0;
+      document.getElementById('usage-unused').textContent = unused || 0;
+    }
+    function renderColumns(containerId, rows) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      if (!rows || !rows.length) { container.innerHTML = '<p>No redirect data yet.</p>'; return; }
+      const visible = rows.slice(0, 8);
+      const max = Math.max(...visible.map((row) => Number(row.count || 0)), 1);
+      container.innerHTML = visible.map((row, index) => {
+        const height = Math.max((Number(row.count || 0) / max) * 100, 2);
+        return '<div class="column-item" title="' + escapeHtml(row.label) + ': ' + escapeHtml(row.count) + '">' +
+          '<div class="column-track"><div class="column-fill" style="height:' + height + '%;filter:hue-rotate(' + (index * 16) + 'deg)"><span class="column-count">' + escapeHtml(row.count) + '</span></div></div>' +
+          '<span class="column-label">' + escapeHtml(row.label) + '</span></div>';
       }).join('');
     }
     async function loadAnalytics() {
@@ -308,6 +379,8 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
         document.getElementById('stat-unused').textContent = data.unusedLinks;
         document.getElementById('stat-most-viewed').textContent = data.mostViewed || '-';
         const breakdowns = data.breakdowns || {};
+        renderUsageDonut(data.usedLinks, data.unusedLinks);
+        renderColumns('columns-links', breakdowns.links);
         renderBars('bars-links', breakdowns.links);
         renderBars('bars-browsers', breakdowns.browsers);
         renderBars('bars-os', breakdowns.os);
