@@ -65,6 +65,10 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async purgeExpiredRateLimitEntries() {
+    throw this.createError();
+  }
+
   async consumeRateLimit() {
     throw this.createError();
   }

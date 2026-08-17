@@ -62,9 +62,24 @@ const apiRateLimitWindowMs = Number.parseInt(process.env.API_RATE_LIMIT_WINDOW_M
 function rateLimitedHandler(handler) {
   return async (request, context) => {
     const storage = await storagePromise;
-    const rateKey = hashIdentityValue(`rate-limit:api:${getClientIp(request)}`, config.identityHashSecret);
-    const result = await storage.consumeRateLimit(rateKey, apiRateLimitMaxRequests, apiRateLimitWindowMs);
+    const sourceIp = getClientIp(request);
+    const rateKey = hashIdentityValue(`rate-limit:api:${sourceIp}`, config.identityHashSecret);
+    const requestContext = buildRateLimitContext(request, 'api');
+    const result = await storage.consumeRateLimit(rateKey, apiRateLimitMaxRequests, apiRateLimitWindowMs, Date.now(), requestContext);
     if (!result.allowed) {
+      // Throttled so a sustained flood cannot fill the audit table, while still capturing who it was.
+      if (rateLimitAuditLimiter.shouldRecord(sourceIp)) {
+        await recordAuditEvent(storage, {
+          action: ACTIONS.RATE_LIMITED,
+          ...buildAuditContext(request, { outcome: 'failure' }),
+          details: {
+            scope: 'api',
+            limit: apiRateLimitMaxRequests,
+            windowMs: apiRateLimitWindowMs,
+            retryAfterSeconds: result.retryAfterSeconds
+          }
+        });
+      }
       return {
         status: 429,
         headers: {
@@ -718,6 +733,21 @@ function buildAuditContext(request, overrides = {}) {
   };
 }
 
+// Stored next to the rate-limit counters, which are keyed by an opaque hash on their own.
+function buildRateLimitContext(request, scope) {
+  const sourceIp = getClientIp(request);
+  const sessionIdentity = getSessionIdentity(request, config);
+  return {
+    scope,
+    sourceIp,
+    userAgent: request.headers.get('user-agent') || '',
+    httpMethod: request.method || '',
+    requestPath: new URL(request.url).pathname,
+    actorUsername: sessionIdentity ? sessionIdentity.username : 'anonymous',
+    location: lookupGeoLocation(sourceIp) || {}
+  };
+}
+
 // Separate trackers per endpoint so guessing invite codes can't lock a shared account out of
 // login, and vice versa; each still shares the same cap/window shape.
 function createAttemptThrottle(scope, maxAttempts = LOGIN_MAX_ATTEMPTS, lockoutMs = LOGIN_LOCKOUT_MS) {
@@ -728,13 +758,27 @@ function createAttemptThrottle(scope, maxAttempts = LOGIN_MAX_ATTEMPTS, lockoutM
       const sinceIso = new Date(Date.now() - lockoutMs).toISOString();
       return (await storage.countRecentRateLimitAttempts(rateKey(ip), sinceIso)) >= maxAttempts;
     },
-    async recordFailedAttempt(ip) {
+    async recordFailedAttempt(ip, request = null) {
       const storage = await storagePromise;
-      await storage.recordRateLimitAttempt(rateKey(ip), new Date().toISOString());
+      await storage.recordRateLimitAttempt(
+        rateKey(ip),
+        new Date().toISOString(),
+        request ? buildRateLimitContext(request, scope) : { scope, sourceIp: ip, location: lookupGeoLocation(ip) || {} }
+      );
     },
     async clearAttempts(ip) {
       const storage = await storagePromise;
       await storage.clearRateLimitAttempts(rateKey(ip));
+    },
+    // Records who hit the lockout so a throttled client is identifiable from the audit trail.
+    async recordLockout(request, details = {}) {
+      const storage = await storagePromise;
+      if (!rateLimitAuditLimiter.shouldRecord(`${scope}:${getClientIp(request)}`)) return;
+      await recordAuditEvent(storage, {
+        action: ACTIONS.RATE_LIMITED,
+        ...buildAuditContext(request, { outcome: 'failure' }),
+        details: { scope, limit: maxAttempts, windowMs: lockoutMs, ...details }
+      });
     }
   };
 }
@@ -747,6 +791,8 @@ const signupThrottle = createAttemptThrottle('signup');
 // Audit writes have their own budget so repeated anonymous failures cannot fill the table.
 // This budget intentionally does not reset after a successful signup.
 const signupAuditLimiter = createAuditWriteLimiter({ maxEvents: LOGIN_MAX_ATTEMPTS, windowMs: LOGIN_LOCKOUT_MS });
+// Shared budget for RATE_LIMITED events so a flood is visible without filling the audit table.
+const rateLimitAuditLimiter = createAuditWriteLimiter({ maxEvents: LOGIN_MAX_ATTEMPTS, windowMs: LOGIN_LOCKOUT_MS });
 
 function safeSignupUserName(value) {
   const candidate = String(value || '').trim();
@@ -813,6 +859,7 @@ registerHttp('forgotPasswordSubmit', {
     const genericMessage = 'If the username and email address match an active account, a password reset link has been sent.';
     const ip = getClientIp(request);
     if (await passwordResetThrottle.isLockedOut(ip)) {
+      await passwordResetThrottle.recordLockout(request);
       return {
         status: 429,
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
@@ -927,6 +974,7 @@ registerHttp('passkeyAuthenticationOptions', {
   route: 'dashboard/passkeys/options',
   handler: async (request) => {
     if (await passkeyThrottle.isLockedOut(getClientIp(request))) {
+      await passkeyThrottle.recordLockout(request, { endpoint: 'options' });
       return { status: 429, jsonBody: { error: 'Too many passkey attempts. Try again later.' } };
     }
     const options = await authenticationOptions(config);
@@ -941,6 +989,7 @@ registerHttp('passkeyAuthenticationVerify', {
   handler: async (request) => {
     const ip = getClientIp(request);
     if (await passkeyThrottle.isLockedOut(ip)) {
+      await passkeyThrottle.recordLockout(request, { endpoint: 'verify' });
       return { status: 429, jsonBody: { error: 'Too many passkey attempts. Try again later.' } };
     }
     const payload = await request.json().catch(() => ({}));
@@ -1137,6 +1186,7 @@ registerHttp('dashboardSignupPage', {
     const inviteCode = new URL(request.url).searchParams.get('invite') || '';
     const ip = getClientIp(request);
     if (await signupThrottle.isLockedOut(ip)) {
+      await signupThrottle.recordLockout(request, { endpoint: 'invite_lookup' });
       return {
         status: 429,
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },

@@ -281,6 +281,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
                 <option value="EMAIL_VERIFIED">Email verified</option>
                 <option value="PASSKEY_REGISTERED">Passkey registered</option>
                 <option value="PASSKEY_REGISTRATION_FAILED">Passkey registration failed</option>
+                <option value="RATE_LIMITED">Rate limited</option>
               </select>
             </div>
             <div class="field"><label for="audit-filter-actor">Actor (username)</label><input id="audit-filter-actor" type="text" placeholder="e.g. admin" /></div>

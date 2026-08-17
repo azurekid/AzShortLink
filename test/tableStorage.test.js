@@ -297,6 +297,47 @@ test('enforces a shared fixed-window API rate limit', async () => {
   assert.equal(denied.retryAfterSeconds, 59);
 });
 
+test('rate limit rows carry the request context that identifies the client', async () => {
+  const { storage, usersClient } = makeStorage();
+  const context = {
+    scope: 'api',
+    sourceIp: '203.0.113.5',
+    userAgent: 'curl/8.0',
+    httpMethod: 'GET',
+    requestPath: '/api/links',
+    actorUsername: 'alice',
+    location: { country: 'Netherlands', countryCode: 'NL', region: 'NH', city: 'Amsterdam' }
+  };
+
+  await storage.consumeRateLimit('client-hash', 5, 60000, 1000, context);
+  await storage.recordRateLimitAttempt('login-hash', '2026-01-01T00:00:00.000Z', context);
+
+  for (const row of usersClient.created) {
+    assert.equal(row.partitionKey, 'RATE_LIMIT');
+    assert.equal(row.sourceIp, '203.0.113.5');
+    assert.equal(row.sourceCountry, 'Netherlands');
+    assert.equal(row.sourceCity, 'Amsterdam');
+    assert.equal(row.userAgent, 'curl/8.0');
+    assert.equal(row.requestPath, '/api/links');
+    assert.equal(row.actorUsername, 'alice');
+    assert.equal(row.scope, 'api');
+    assert.ok(row.expiresAt);
+  }
+});
+
+test('purges expired rate limit rows and keeps live ones', async () => {
+  const { storage, usersClient } = makeStorage({
+    usersEntities: [
+      { partitionKey: 'RATE_LIMIT', rowKey: 'expired-1', expiresAt: '2026-01-01T00:00:00.000Z' },
+      { partitionKey: 'RATE_LIMIT', rowKey: 'live-1', expiresAt: '2026-12-31T00:00:00.000Z' }
+    ]
+  });
+
+  await storage.purgeExpiredRateLimitEntries(Date.parse('2026-06-01T00:00:00.000Z'));
+
+  assert.deepEqual(usersClient.deleted, [{ partitionKey: 'RATE_LIMIT', rowKey: 'expired-1' }]);
+});
+
 test('getHealthDetails reports each table independently', async () => {
   const { storage, auditClient } = makeStorage();
   auditClient.getAccessPolicy = async () => {

@@ -14,6 +14,7 @@ class InMemoryStorage {
     this.auditEvents = new Map();
     this.rateLimitAttempts = new Map();
     this.rateLimitWindows = new Map();
+    this.rateLimitContext = new Map();
     this.tableName = options.tableName || '';
   }
 
@@ -82,21 +83,24 @@ class InMemoryStorage {
     return (this.rateLimitAttempts.get(rateKey) || []).filter((attemptedAt) => attemptedAt >= sinceIso).length;
   }
 
-  async recordRateLimitAttempt(rateKey, attemptedAt) {
+  async recordRateLimitAttempt(rateKey, attemptedAt, context = {}) {
     const attempts = (this.rateLimitAttempts.get(rateKey) || []).filter((value) => value >= new Date(Date.parse(attemptedAt) - 24 * 60 * 60 * 1000).toISOString());
     attempts.push(attemptedAt);
     this.rateLimitAttempts.set(rateKey, attempts);
+    this.rateLimitContext.set(rateKey, context);
   }
 
   async clearRateLimitAttempts(rateKey) {
     this.rateLimitAttempts.delete(rateKey);
+    this.rateLimitContext.delete(rateKey);
   }
 
-  async consumeRateLimit(rateKey, maxRequests, windowMs, now = Date.now()) {
+  async consumeRateLimit(rateKey, maxRequests, windowMs, now = Date.now(), context = {}) {
     const bucket = Math.floor(now / windowMs);
     const key = `${rateKey}:${bucket}`;
     const count = (this.rateLimitWindows.get(key) || 0) + 1;
     this.rateLimitWindows.set(key, count);
+    this.rateLimitContext.set(key, context);
     return { allowed: count <= maxRequests, retryAfterSeconds: Math.max(1, Math.ceil(((bucket + 1) * windowMs - now) / 1000)) };
   }
 

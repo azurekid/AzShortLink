@@ -13,6 +13,28 @@ const INVITE_PARTITION_KEY = 'INVITE';
 const HELP_PARTITION_KEY = 'HELP';
 const RATE_LIMIT_PARTITION_KEY = 'RATE_LIMIT';
 const AUDIT_PARTITION_KEY = 'AUDIT';
+const RATE_LIMIT_ATTEMPT_RETENTION_MS = 24 * 60 * 60 * 1000;
+const RATE_LIMIT_WINDOW_GRACE_MS = 5 * 60 * 1000;
+const RATE_LIMIT_PURGE_SCAN_LIMIT = 200;
+const RATE_LIMIT_PURGE_DELETE_LIMIT = 25;
+
+// Rate-limit rows are opaque hashes on their own, so the caller-supplied request context is
+// stored alongside them to make "who triggered this" answerable from the table itself.
+function rateLimitContextColumns(context = {}) {
+  const location = context.location || {};
+  return {
+    scope: String(context.scope || '').slice(0, 64),
+    sourceIp: String(context.sourceIp || '').slice(0, 64),
+    sourceCountry: String(location.country || '').slice(0, 128),
+    sourceCountryCode: String(location.countryCode || '').slice(0, 2),
+    sourceRegion: String(location.region || '').slice(0, 128),
+    sourceCity: String(location.city || '').slice(0, 128),
+    userAgent: String(context.userAgent || '').slice(0, 512),
+    httpMethod: String(context.httpMethod || '').slice(0, 16),
+    requestPath: String(context.requestPath || '').slice(0, 512),
+    actorUsername: String(context.actorUsername || 'anonymous').slice(0, 128)
+  };
+}
 
 function parseAgentStats(value) {
   if (!value) {
@@ -174,13 +196,16 @@ class TableStorage {
     return count;
   }
 
-  async recordRateLimitAttempt(rateKey, attemptedAt) {
+  async recordRateLimitAttempt(rateKey, attemptedAt, context = {}) {
     await this.usersClient.createEntity({
       partitionKey: RATE_LIMIT_PARTITION_KEY,
       rowKey: `${Date.now()}-${crypto.randomUUID()}`,
       rateKey,
-      attemptedAt
+      attemptedAt,
+      expiresAt: new Date(Date.parse(attemptedAt) + RATE_LIMIT_ATTEMPT_RETENTION_MS).toISOString(),
+      ...rateLimitContextColumns(context)
     });
+    await this.purgeExpiredRateLimitEntries();
   }
 
   async clearRateLimitAttempts(rateKey) {
@@ -195,22 +220,61 @@ class TableStorage {
     await Promise.all(deletions);
   }
 
-  async consumeRateLimit(rateKey, maxRequests, windowMs, now = Date.now()) {
+  // Bounded, best-effort cleanup so short-lived counters do not accumulate in the users table.
+  async purgeExpiredRateLimitEntries(now = Date.now()) {
+    const nowIso = new Date(now).toISOString();
+    try {
+      const entities = this.usersClient.listEntities({
+        queryOptions: { filter: `PartitionKey eq '${RATE_LIMIT_PARTITION_KEY}' and expiresAt lt '${nowIso}'` }
+      });
+      const rowKeys = [];
+      let scanned = 0;
+      for await (const item of entities) {
+        scanned += 1;
+        if (item.expiresAt && item.expiresAt < nowIso) rowKeys.push(item.rowKey);
+        if (rowKeys.length >= RATE_LIMIT_PURGE_DELETE_LIMIT || scanned >= RATE_LIMIT_PURGE_SCAN_LIMIT) break;
+      }
+      await Promise.all(rowKeys.map(async (rowKey) => {
+        try {
+          await this.usersClient.deleteEntity(RATE_LIMIT_PARTITION_KEY, rowKey);
+        } catch {
+          // Leave it for the next purge to retry.
+        }
+      }));
+    } catch {
+      // Purging must never fail the request that triggered it.
+    }
+  }
+
+  async consumeRateLimit(rateKey, maxRequests, windowMs, now = Date.now(), context = {}) {
     const bucket = Math.floor(now / windowMs);
     const rowKey = `${rateKey}-${bucket}`;
+    const windowEndsAt = (bucket + 1) * windowMs;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const item = await this.usersClient.getEntity(RATE_LIMIT_PARTITION_KEY, rowKey);
         const count = Number(item.count) || 0;
         if (count >= maxRequests) {
-          return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(((bucket + 1) * windowMs - now) / 1000)) };
+          return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((windowEndsAt - now) / 1000)) };
         }
-        await this.usersClient.updateEntity({ ...item, count: count + 1 }, 'Replace', { etag: item.etag });
+        await this.usersClient.updateEntity({ ...item, count: count + 1, lastAttemptAt: new Date(now).toISOString() }, 'Replace', { etag: item.etag });
         return { allowed: true, retryAfterSeconds: 0 };
       } catch (err) {
         if (err && err.statusCode === 404) {
           try {
-            await this.usersClient.createEntity({ partitionKey: RATE_LIMIT_PARTITION_KEY, rowKey, rateKey, bucket, count: 1 });
+            await this.usersClient.createEntity({
+              partitionKey: RATE_LIMIT_PARTITION_KEY,
+              rowKey,
+              rateKey,
+              bucket,
+              count: 1,
+              attemptedAt: new Date(now).toISOString(),
+              lastAttemptAt: new Date(now).toISOString(),
+              expiresAt: new Date(windowEndsAt + RATE_LIMIT_WINDOW_GRACE_MS).toISOString(),
+              ...rateLimitContextColumns(context)
+            });
+            // Only on the first request of a window, so the scan cost stays bounded per client.
+            await this.purgeExpiredRateLimitEntries(now);
             return { allowed: true, retryAfterSeconds: 0 };
           } catch (createError) {
             if (!createError || (createError.statusCode !== 409 && createError.code !== 'EntityAlreadyExists')) throw createError;
