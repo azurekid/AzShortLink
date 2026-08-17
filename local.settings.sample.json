@@ -11,6 +11,8 @@
     "COMMUNICATION_SERVICES_CONNECTION_STRING": "endpoint=https://<resource>.communication.azure.com/;accesskey=<key>",
     "EMAIL_SENDER_ADDRESS": "DoNotReply@your-verified-domain.example",
     "API_RATE_LIMIT_MAX_REQUESTS": "60",
-    "API_RATE_LIMIT_WINDOW_MS": "60000"
+    "API_RATE_LIMIT_WINDOW_MS": "60000",
+    "EMAIL_DOMAIN_BLOCKLIST": "",
+    "EMAIL_DOMAIN_ALLOWLIST": ""
   }
 }

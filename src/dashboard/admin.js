@@ -282,6 +282,9 @@ ${renderDocumentHead('AzShortLink Dashboard')}
                 <option value="PASSKEY_REGISTERED">Passkey registered</option>
                 <option value="PASSKEY_REGISTRATION_FAILED">Passkey registration failed</option>
                 <option value="RATE_LIMITED">Rate limited</option>
+                <option value="QUOTA_EXCEEDED">Daily quota exceeded</option>
+                <option value="PLAN_UPGRADE_REQUESTED">Plan upgrade requested</option>
+                <option value="PLAN_CHANGED">Plan changed</option>
               </select>
             </div>
             <div class="field"><label for="audit-filter-actor">Actor (username)</label><input id="audit-filter-actor" type="text" placeholder="e.g. admin" /></div>
@@ -361,7 +364,11 @@ ${renderDocumentHead('AzShortLink Dashboard')}
             ? '<button class="button-secondary button-compact" type="button" data-role-user="' + escapeHtml(item.username) + '" data-next-role="' + (item.role === 'admin' ? 'user' : 'admin') + '">' + (item.role === 'admin' ? 'Make user' : 'Make admin') + '</button> '
             : '';
           const branchAction = '<button class="button-secondary button-compact" type="button" data-branch-user="' + escapeHtml(item.username) + '" data-suspended="' + (!item.branchSuspended) + '">' + (item.branchSuspended ? 'Restore branch' : 'Suspend branch') + '</button> ';
-          const actions = accessAction + roleAction + branchAction + '<button class="button-secondary button-compact" type="button" data-reset-user="' + escapeHtml(item.username) + '">Reset password</button>' +
+          const currentPlan = item.plan || 'free';
+          const planAction = '<select class="button-secondary button-compact" aria-label="Plan for ' + escapeHtml(item.username) + '" data-plan-user="' + escapeHtml(item.username) + '">' +
+            ['free', 'pro', 'business'].map((plan) => '<option value="' + plan + '"' + (plan === currentPlan ? ' selected' : '') + '>' + plan + ' plan</option>').join('') +
+            '</select> ';
+          const actions = accessAction + roleAction + branchAction + planAction + '<button class="button-secondary button-compact" type="button" data-reset-user="' + escapeHtml(item.username) + '">Reset password</button>' +
             (isSelf ? '' : ' <button class="button-danger button-compact" type="button" data-delete-user="' + escapeHtml(item.username) + '">Delete</button>');
           const initial = escapeHtml((item.displayName || item.username || '?').slice(0, 1).toUpperCase());
           const joined = item.createdAt ? String(item.createdAt).slice(0, 10) : '-';
@@ -372,6 +379,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
             '<div class="profile-meta">' +
               '<div class="profile-fact"><span>Access</span><strong><span class="pill ' + (item.role === 'admin' ? 'admin' : '') + '">' + escapeHtml(item.role) + '</span></strong></div>' +
               '<div class="profile-fact"><span>Trust</span><strong>' + escapeHtml(trustState) + '</strong></div>' +
+              '<div class="profile-fact"><span>Plan</span><strong>' + escapeHtml(currentPlan) + (item.planExpiresAt ? ' / until ' + escapeHtml(String(item.planExpiresAt).slice(0, 10)) : '') + '</strong></div>' +
               '<div class="profile-fact"><span>Sponsor / depth</span><strong title="' + escapeHtml(item.invitedByUserId || 'Root profile') + '">' + escapeHtml(item.invitedByUserId || 'root') + ' / ' + escapeHtml(item.inviteDepth || 0) + '</strong></div>' +
               '<div class="profile-fact"><span>Activity / joined</span><strong>' + escapeHtml(item.linkCount ?? 0) + ' links / ' + escapeHtml(joined) + '</strong></div>' +
             '</div><div class="profile-actions">' + actions + '</div></article>';
@@ -381,6 +389,14 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     const loadUsersButton = document.getElementById('load-users');
     if (loadUsersButton) loadUsersButton.addEventListener('click', loadUsers);
     const usersBodyEl = document.getElementById('users-body');
+    if (usersBodyEl) usersBodyEl.addEventListener('change', async (event) => {
+      const planSelect = event.target.closest('[data-plan-user]');
+      if (!planSelect) return;
+      try {
+        await apiRequest('/api/users/' + encodeURIComponent(planSelect.dataset.planUser) + '/plan', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: planSelect.value }) });
+        await loadUsers();
+      } catch (error) { setPanelStatus('users-status', error.message, 'error'); }
+    });
     if (usersBodyEl) usersBodyEl.addEventListener('click', async (event) => {
       const approveButton = event.target.closest('[data-approve-user]');
       if (approveButton) {

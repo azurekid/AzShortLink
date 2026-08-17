@@ -32,7 +32,10 @@ const ACTIONS = Object.freeze({
   EMAIL_VERIFIED: 'EMAIL_VERIFIED',
   PASSKEY_REGISTERED: 'PASSKEY_REGISTERED',
   PASSKEY_REGISTRATION_FAILED: 'PASSKEY_REGISTRATION_FAILED',
-  RATE_LIMITED: 'RATE_LIMITED'
+  RATE_LIMITED: 'RATE_LIMITED',
+  QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
+  PLAN_UPGRADE_REQUESTED: 'PLAN_UPGRADE_REQUESTED',
+  PLAN_CHANGED: 'PLAN_CHANGED'
 });
 
 function retentionCutoffIso(now = Date.now()) {
@@ -75,7 +78,8 @@ function sanitizeDetailValue(value, depth = 0) {
 }
 
 function getEventCategory(action) {
-  if (action === ACTIONS.RATE_LIMITED) return 'security';
+  if (action.startsWith('PLAN_')) return 'billing';
+  if (action === ACTIONS.RATE_LIMITED || action === ACTIONS.QUOTA_EXCEEDED) return 'security';
   if (action.startsWith('LOGIN_') || action === ACTIONS.LOGOUT || action.startsWith('PASSKEY_') || action.includes('PASSWORD') || action === ACTIONS.API_KEY_ROTATED) return 'authentication';
   if (action.startsWith('USER_') || action.startsWith('SIGNUP_') || action === ACTIONS.BRANCH_SUSPENSION_CHANGED || action === ACTIONS.EMAIL_VERIFIED) return 'identity';
   if (action.startsWith('LINK_')) return 'link';

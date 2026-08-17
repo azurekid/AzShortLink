@@ -153,8 +153,24 @@ The application layer can use in-memory storage for tests. Azure deployments use
 | `IDENTITY_HASH_SECRET` | Required | Yes | Keyed identity and risk hashes |
 | `COMMUNICATION_SERVICES_CONNECTION_STRING` | For invite signup | Yes | Verification delivery |
 | `EMAIL_SENDER_ADDRESS` | For invite signup | No | Verified ACS sender |
-| `API_RATE_LIMIT_MAX_REQUESTS` | Optional | No | Requests per shared storage-backed window, default `60` |
+| `API_RATE_LIMIT_MAX_REQUESTS` | Optional | No | Requests per shared storage-backed window for anonymous and Free-plan callers, default `60` |
 | `API_RATE_LIMIT_WINDOW_MS` | Optional | No | Window length, default `60000` |
+| `EMAIL_DOMAIN_BLOCKLIST` | Optional | No | Extra domains rejected at signup, in addition to the bundled disposable-provider list |
+| `EMAIL_DOMAIN_ALLOWLIST` | Optional | No | When set, only these domains may register; takes precedence over the blocklist |
+
+## Plans and Quotas
+
+Every account is on a plan that caps daily volume, because each redirect is a Function invocation plus a table write.
+
+| Plan | Price | New links / day | Redirects / day | API requests / minute |
+|---|---:|---:|---:|---:|
+| Free | &euro;0 | 25 | 1,000 | 60 |
+| Pro | &euro;9 | 250 | 25,000 | 600 |
+| Business | &euro;49 | 2,000 | 250,000 | 3,000 |
+
+Counters reset at 00:00 UTC and exceeded limits return HTTP 429; links are never removed. `/pricing` lists the plans, `GET /api/account/plan` reports the current limits and usage, and `POST /api/account/plan` records an upgrade request. Paid plans are activated by an administrator with `PATCH /api/users/{username}/plan` once payment is confirmed; an optional `expiresAt` makes the account fall back to Free automatically. No payment provider is wired in.
+
+Disposable and temporary mailbox providers are rejected at signup from a bundled domain list. Sub-addressed and dotted variants of the same mailbox are canonicalized before the duplicate check, so one inbox cannot register repeatedly.
 
 Bicep writes sensitive values to Key Vault and configures versionless App Service references. Local development reads the same setting names directly.
 
@@ -167,7 +183,7 @@ src/analytics/              user-agent and geographic analytics
 src/assets/css/             page, dashboard, and deployment styles
 src/assets/images/          locally served visual assets
 src/auth/                   sessions, identity, passkeys, and invite policy
-src/core/                   configuration, auditing, and rate limiting
+src/core/                   configuration, auditing, plans, and rate limiting
 src/pages/                  login, signup, error, and Swagger templates
 src/services/               short links, email, and QR code services
 src/storage/                storage adapters

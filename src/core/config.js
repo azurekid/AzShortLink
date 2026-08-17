@@ -1,5 +1,7 @@
 'use strict';
 
+const { parseDomainList } = require('../auth/emailPolicy');
+
 function getConfig() {
   const apiKey = process.env.SHORTLINK_API_KEY || '';
   const dashboardPasswordHash = process.env.DASHBOARD_PASSWORD_HASH || '';
@@ -22,7 +24,10 @@ function getConfig() {
     dashboardSessionSecret: process.env.DASHBOARD_SESSION_SECRET || '',
     identityHashSecret: process.env.IDENTITY_HASH_SECRET || '',
     emailConnectionString: process.env.COMMUNICATION_SERVICES_CONNECTION_STRING || '',
-    emailSenderAddress: process.env.EMAIL_SENDER_ADDRESS || ''
+    emailSenderAddress: process.env.EMAIL_SENDER_ADDRESS || '',
+    // Extends the bundled disposable-domain list; the allowlist, when set, wins over both.
+    blockedEmailDomains: parseDomainList(process.env.EMAIL_DOMAIN_BLOCKLIST),
+    allowedEmailDomains: parseDomainList(process.env.EMAIL_DOMAIN_ALLOWLIST)
   };
 }
 

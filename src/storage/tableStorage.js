@@ -3,6 +3,7 @@
 const { TableClient } = require('@azure/data-tables');
 const crypto = require('node:crypto');
 const { retentionCutoffIso, generateAuditRowKey } = require('../core/audit');
+const { DEFAULT_PLAN_ID } = require('../core/plans');
 const { appendHelpMessage, formatTicketNumber, getHelpMessages } = require('../services/helpRequests');
 
 const PARTITION_KEY = 'LINK';
@@ -83,6 +84,7 @@ class TableStorage {
         createdAt,
         status: identity.status || 'active',
         emailHash: identity.emailHash || '',
+        emailCanonicalHash: identity.emailCanonicalHash || '',
         emailMasked: identity.emailMasked || '',
         emailVerifiedAt: identity.emailVerifiedAt || '',
         invitedByUserId: identity.invitedByUserId || '',
@@ -92,7 +94,10 @@ class TableStorage {
         signupDeviceHash: identity.signupDeviceHash || '',
         riskFlags: JSON.stringify(identity.riskFlags || []),
         branchSuspended: Boolean(identity.branchSuspended),
-        sessionVersion: Number(identity.sessionVersion) || 1
+        sessionVersion: Number(identity.sessionVersion) || 1,
+        plan: identity.plan || DEFAULT_PLAN_ID,
+        planActivatedAt: identity.planActivatedAt || '',
+        planExpiresAt: identity.planExpiresAt || ''
       });
     } catch (err) {
       if (err && (err.statusCode === 409 || err.code === 'EntityAlreadyExists')) {
@@ -123,6 +128,7 @@ class TableStorage {
         createdAt: item.createdAt,
         status: item.status || 'active',
         emailHash: item.emailHash || '',
+        emailCanonicalHash: item.emailCanonicalHash || '',
         emailMasked: item.emailMasked || '',
         emailVerifiedAt: item.emailVerifiedAt || '',
         invitedByUserId: item.invitedByUserId || '',
@@ -135,7 +141,10 @@ class TableStorage {
         apiKeyHash: item.apiKeyHash || '',
         apiKeyPrefix: item.apiKeyPrefix || '',
         apiKeyCreatedAt: item.apiKeyCreatedAt || '',
-        sessionVersion: Number(item.sessionVersion) || 1
+        sessionVersion: Number(item.sessionVersion) || 1,
+        plan: item.plan || DEFAULT_PLAN_ID,
+        planActivatedAt: item.planActivatedAt || '',
+        planExpiresAt: item.planExpiresAt || ''
       };
     } catch (err) {
       if (err && err.statusCode === 404) {
@@ -167,7 +176,10 @@ class TableStorage {
         branchSuspended: Boolean(item.branchSuspended),
         createdAt: item.createdAt || '',
         apiKeyPrefix: item.apiKeyPrefix || '',
-        sessionVersion: Number(item.sessionVersion) || 1
+        sessionVersion: Number(item.sessionVersion) || 1,
+        plan: item.plan || DEFAULT_PLAN_ID,
+        planActivatedAt: item.planActivatedAt || '',
+        planExpiresAt: item.planExpiresAt || ''
       });
     }
 
@@ -180,6 +192,19 @@ class TableStorage {
       queryOptions: { filter: `PartitionKey eq '${USER_PARTITION_KEY}' and emailHash eq '${escaped}'` }
     });
     for await (const item of entities) return this.getUser(item.rowKey);
+    return null;
+  }
+
+  async getUserByCanonicalEmailHash(emailCanonicalHash) {
+    const canonicalHash = String(emailCanonicalHash || '');
+    if (!canonicalHash) return null;
+    const escaped = canonicalHash.replaceAll("'", "''");
+    const entities = this.usersClient.listEntities({
+      queryOptions: { filter: `PartitionKey eq '${USER_PARTITION_KEY}' and emailCanonicalHash eq '${escaped}'` }
+    });
+    for await (const item of entities) {
+      if (item.emailCanonicalHash === canonicalHash) return this.getUser(item.rowKey);
+    }
     return null;
   }
 
@@ -246,8 +271,7 @@ class TableStorage {
     }
   }
 
-  async consumeRateLimit(rateKey, maxRequests, windowMs, now = Date.now(), context = {}) {
-    const bucket = Math.floor(now / windowMs);
+  async consumeRateLimit(rateKey, maxRequests, windowMs, now = Date.now(), context = {}) {    const bucket = Math.floor(now / windowMs);
     const rowKey = `${rateKey}-${bucket}`;
     const windowEndsAt = (bucket + 1) * windowMs;
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -285,6 +309,18 @@ class TableStorage {
       }
     }
     return { allowed: false, retryAfterSeconds: 1 };
+  }
+
+  // Reads the current window without consuming from it, for usage reporting.
+  async peekRateLimit(rateKey, windowMs, now = Date.now()) {
+    const rowKey = `${rateKey}-${Math.floor(now / windowMs)}`;
+    try {
+      const item = await this.usersClient.getEntity(RATE_LIMIT_PARTITION_KEY, rowKey);
+      return Number(item.count) || 0;
+    } catch (err) {
+      if (err && err.statusCode === 404) return 0;
+      throw err;
+    }
   }
 
   async updateUserIdentity(userId, changes) {

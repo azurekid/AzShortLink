@@ -1,12 +1,24 @@
 'use strict';
 
-function renderNotFoundPage() {
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+function renderNotFoundPage({
+  code = '404',
+  title = 'Short link not found',
+  description = 'The link you followed may be broken, expired, or removed.',
+  command = 'Resolve-ShortLink -CurrentRequest',
+  output = 'ERROR: No matching short link was found.'
+} = {}) {
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AzShortLink — 404</title>
+  <title>AzShortLink — ${escapeHtml(code)}</title>
   <link rel="icon" type="image/svg+xml" href="https://azurehacking.com/images/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,12 +32,12 @@ function renderNotFoundPage() {
   </nav>
   <main class="error-page">
     <section class="error-content" aria-labelledby="error-title">
-      <p class="code">404</p>
-      <h1 id="error-title">Short link not found</h1>
-      <p class="description">The link you followed may be broken, expired, or removed.</p>
+      <p class="code">${escapeHtml(code)}</p>
+      <h1 id="error-title">${escapeHtml(title)}</h1>
+      <p class="description">${escapeHtml(description)}</p>
       <div class="terminal" role="status" aria-label="Lookup result">
-        <div><span class="prompt">$</span> Resolve-ShortLink -CurrentRequest</div>
-        <div class="output">ERROR: No matching short link was found.</div>
+        <div><span class="prompt">$</span> ${escapeHtml(command)}</div>
+        <div class="output">${escapeHtml(output)}</div>
       </div>
       <div class="actions">
         <a class="action" href="/dashboard/login">Back to home</a>

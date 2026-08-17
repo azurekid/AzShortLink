@@ -17,13 +17,15 @@ function buildOpenApiSpec(baseUrl, options = {}) {
       { name: 'Profile' },
       { name: 'Administration' },
       { name: 'Invites' },
+      { name: 'Plans' },
       { name: 'Operations' }
     ],
     paths: {
       '/api/shorten': {
         post: operation('Create a short link', 'Links', {
+          description: 'Counts against the daily new-link quota of the account plan.',
           requestBody: jsonBody('ShortLinkRequest'),
-          responses: { 201: jsonResponse('ShortLink'), 400: errorResponse(), 401: errorResponse(), 409: errorResponse() }
+          responses: { 201: jsonResponse('ShortLink'), 400: errorResponse(), 401: errorResponse(), 409: errorResponse(), 429: jsonResponse('QuotaError') }
         })
       },
       '/api/stats': {
@@ -132,6 +134,26 @@ function buildOpenApiSpec(baseUrl, options = {}) {
           responses: { 204: { description: 'Invite revoked.' }, 401: errorResponse(), 404: errorResponse(), 409: errorResponse() }
         })
       },
+      '/api/plans': {
+        get: { summary: 'List the available plans and their limits', tags: ['Plans'], responses: { 200: jsonResponse('PlansResponse') } }
+      },
+      '/api/account/plan': {
+        get: operation('Get the current plan, limits and daily usage', 'Plans', {
+          responses: { 200: jsonResponse('AccountPlanResponse'), 401: errorResponse() }
+        }),
+        post: sessionOperation('Request a plan change', 'Plans', {
+          description: 'Downgrades to a free plan apply immediately; paid plans are activated once payment is confirmed.',
+          requestBody: jsonBody('PlanChangeRequest'),
+          responses: { 200: jsonResponse('PlanChangeResponse'), 202: jsonResponse('PlanChangeResponse'), 400: errorResponse(), 401: errorResponse() }
+        })
+      },
+      '/api/users/{username}/plan': {
+        patch: adminOperation('Assign a plan to a profile', 'Administration', {
+          parameters: [usernameParameter()],
+          requestBody: jsonBody('SetUserPlanRequest'),
+          responses: { 200: jsonResponse('UpdateResponse'), 400: errorResponse(), 401: errorResponse(), 404: errorResponse() }
+        })
+      },
       '/api/audit': {
         get: adminOperation('List audit events', 'Administration', {
           parameters: [
@@ -169,7 +191,28 @@ function buildOpenApiSpec(baseUrl, options = {}) {
         LinkStatsList: { type: 'object', properties: { baseUrl: { type: 'string', format: 'uri' }, total: { type: 'integer' }, links: { type: 'array', items: { $ref: '#/components/schemas/LinkStats' } } } },
         DeleteLinkResponse: { type: 'object', properties: { deleted: { type: 'boolean' }, code: { type: 'string' } } },
         AnalyticsResponse: { type: 'object', additionalProperties: true },
-        Profile: { type: 'object', properties: { username: { type: 'string' }, displayName: { type: 'string' }, role: { type: 'string', enum: ['admin', 'user'] }, apiKeyPrefix: { type: 'string' }, apiKeyCreatedAt: { type: 'string', format: 'date-time' } } },
+        Profile: { type: 'object', properties: { username: { type: 'string' }, displayName: { type: 'string' }, role: { type: 'string', enum: ['admin', 'user'] }, apiKeyPrefix: { type: 'string' }, apiKeyCreatedAt: { type: 'string', format: 'date-time' }, plan: { type: 'string', enum: ['free', 'pro', 'business'] }, planName: { type: 'string' }, planExpiresAt: { type: 'string' } } },
+        QuotaError: { type: 'object', properties: { error: { type: 'string' }, plan: { type: 'string' }, limit: { type: 'integer' }, resetAt: { type: 'string', format: 'date-time' }, upgradeUrl: { type: 'string', format: 'uri' } } },
+        Plan: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', enum: ['free', 'pro', 'business'] }, name: { type: 'string' }, priceEurPerMonth: { type: 'number' },
+            linksPerDay: { type: 'integer' }, redirectsPerDay: { type: 'integer' }, apiRequestsPerMinute: { type: 'integer' },
+            highlights: { type: 'array', items: { type: 'string' } }
+          }
+        },
+        PlansResponse: { type: 'object', properties: { plans: { type: 'array', items: { $ref: '#/components/schemas/Plan' } } } },
+        AccountPlanResponse: {
+          type: 'object',
+          properties: {
+            plan: { type: 'string' }, planName: { type: 'string' }, planExpiresAt: { type: 'string' },
+            limits: { type: 'object', properties: { linksPerDay: { type: 'integer' }, redirectsPerDay: { type: 'integer' }, apiRequestsPerMinute: { type: 'integer' } } },
+            usage: { type: 'object', properties: { linksToday: { type: 'integer' }, redirectsToday: { type: 'integer' }, resetAt: { type: 'string', format: 'date-time' } } }
+          }
+        },
+        PlanChangeRequest: { type: 'object', required: ['plan'], properties: { plan: { type: 'string', enum: ['free', 'pro', 'business'] } } },
+        PlanChangeResponse: { type: 'object', properties: { plan: { type: 'string' }, requestedPlan: { type: 'string' }, pending: { type: 'boolean' }, message: { type: 'string' } } },
+        SetUserPlanRequest: { type: 'object', required: ['plan'], properties: { plan: { type: 'string', enum: ['free', 'pro', 'business'] }, expiresAt: { type: 'string', format: 'date-time', description: 'Optional end of the paid period; the account falls back to Free afterwards.' } } },
         ChangePasswordRequest: { type: 'object', required: ['currentPassword', 'newPassword'], properties: { currentPassword: { type: 'string', format: 'password' }, newPassword: { type: 'string', format: 'password', minLength: 12 } } },
         ResetPasswordRequest: { type: 'object', required: ['newPassword'], properties: { newPassword: { type: 'string', format: 'password', minLength: 12 } } },
         UpdateResponse: { type: 'object', properties: { updated: { type: 'boolean' }, message: { type: 'string' } } },
@@ -197,7 +240,7 @@ function buildOpenApiSpec(baseUrl, options = {}) {
           required: ['schemaVersion', 'eventId', 'timestamp', 'action', 'category', 'outcome', 'channel'],
           properties: {
             schemaVersion: { type: 'integer' }, eventId: { type: 'string', format: 'uuid' }, timestamp: { type: 'string', format: 'date-time' },
-            action: { type: 'string' }, category: { type: 'string', enum: ['authentication', 'identity', 'link', 'invite', 'application'] },
+            action: { type: 'string' }, category: { type: 'string', enum: ['authentication', 'identity', 'link', 'invite', 'security', 'billing', 'application'] },
             outcome: { type: 'string', enum: ['success', 'failure'] }, actorId: { type: 'string' }, actorUsername: { type: 'string' }, actorRole: { type: 'string' },
             channel: { type: 'string', enum: ['api', 'dashboard', 'unknown'] }, authenticationMethod: { type: 'string' }, sourceIp: { type: 'string' },
             userAgent: { type: 'string' }, httpMethod: { type: 'string' }, requestPath: { type: 'string' }, source: { $ref: '#/components/schemas/AuditSource' },

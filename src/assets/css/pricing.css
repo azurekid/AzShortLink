@@ -1,0 +1,76 @@
+
+    :root {
+      color-scheme: dark;
+      --bg:#0a0a0f; --surface:#12121a; --card:#1a1a2e; --input:#16162a;
+      --accent:#00d4ff; --danger:#ef4444; --text:#e2e8f0; --heading:#f1f5f9;
+      --muted:#94a3b8; --border:#2d2d44; --border-hover:#3d3d5c;
+      --glow:0 0 24px rgba(0,212,255,.22); --ease:220ms cubic-bezier(.4,0,.2,1);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0; min-height:100vh; color:var(--text); line-height:1.6;
+      font-family:Inter,"Segoe UI",system-ui,sans-serif;
+      background-color:var(--bg);
+      background-image:
+        linear-gradient(rgba(10,10,15,.55),rgba(10,10,15,.78)),
+        radial-gradient(circle at 15% 8%,rgba(0,212,255,.18),transparent 34%),
+        radial-gradient(circle at 85% 92%,rgba(124,58,237,.18),transparent 36%),
+        url("/assets/images/background.jpg");
+      background-position:center; background-size:cover; background-repeat:no-repeat; background-attachment:fixed;
+    }
+    body::after {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+      background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,212,255,.018) 3px,rgba(0,212,255,.018) 4px);
+    }
+    .navbar, .footer, .pricing-page { position:relative; z-index:1; width:min(1100px,calc(100% - 48px)); margin:auto; }
+    .navbar {
+      display:flex; justify-content:space-between; align-items:center; gap:16px; padding:28px 0;
+      border-bottom:1px solid rgba(45,45,68,.7);
+    }
+    .brand { color:var(--accent); font:700 1.25rem "Share Tech Mono","Cascadia Mono",ui-monospace,monospace; text-decoration:none; }
+    .brand span { color:var(--muted); }
+    .nav-link { color:var(--muted); text-decoration:none; font-weight:600; transition:color var(--ease); }
+    .nav-link:hover { color:var(--accent); }
+    .pricing-page { padding:48px 0 64px; }
+    .pricing-header { text-align:center; margin-bottom:40px; }
+    .pricing-header h1 { margin:0 0 10px; color:var(--heading); font-size:clamp(1.8rem,4vw,2.6rem); }
+    .pricing-header p { margin:0 auto; max-width:640px; color:var(--muted); }
+    .plan-grid { display:grid; gap:20px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); align-items:stretch; }
+    .plan-card {
+      display:flex; flex-direction:column; gap:16px; padding:26px 24px;
+      background:rgba(26,26,46,.82); border:1px solid var(--border); border-radius:14px;
+      box-shadow:0 4px 24px rgba(0,0,0,.45); transition:all var(--ease);
+    }
+    .plan-card:hover { border-color:var(--border-hover); transform:translateY(-2px); }
+    .plan-card.plan-featured { border-color:var(--accent); box-shadow:var(--glow); }
+    .plan-card h2 { margin:0; color:var(--heading); font-size:1.35rem; }
+    .plan-price { margin:0; display:flex; align-items:baseline; gap:8px; }
+    .plan-price .amount { color:var(--accent); font:700 2.2rem/1 "Share Tech Mono",monospace; }
+    .plan-price .period { color:var(--muted); font-size:.9rem; }
+    .plan-limits { margin:0; display:grid; gap:8px; }
+    .plan-limits div { display:flex; justify-content:space-between; gap:12px; padding-bottom:8px; border-bottom:1px dashed rgba(45,45,68,.8); }
+    .plan-limits dt { color:var(--muted); font-size:.9rem; }
+    .plan-limits dd { margin:0; color:var(--text); font:600 .95rem "Share Tech Mono",monospace; }
+    .plan-highlights { margin:0; padding-left:18px; color:var(--muted); font-size:.9rem; }
+    .plan-highlights li { margin-bottom:4px; }
+    .plan-action {
+      margin-top:auto; min-height:44px; padding:10px 20px; cursor:pointer;
+      color:#061017; background:var(--accent); border:1px solid var(--accent); border-radius:8px;
+      font-weight:700; font-family:inherit; font-size:.95rem; transition:all var(--ease);
+    }
+    .plan-action:hover { transform:translateY(-1px); box-shadow:var(--glow); filter:brightness(1.08); }
+    .plan-action:disabled { cursor:not-allowed; filter:grayscale(.6); transform:none; box-shadow:none; }
+    .plan-current { margin:auto 0 0; padding:10px 0; color:var(--accent); font-weight:700; text-align:center; }
+    .pricing-status { min-height:24px; margin:22px 0 0; color:var(--muted); text-align:center; }
+    .pricing-status.error { color:var(--danger); }
+    .pricing-notes { margin-top:40px; padding-top:24px; border-top:1px solid rgba(45,45,68,.7); }
+    .pricing-notes h2 { margin:0 0 10px; color:var(--heading); font-size:1.1rem; }
+    .pricing-notes ul { margin:0; padding-left:18px; color:var(--muted); font-size:.9rem; }
+    .footer { padding:24px 0; border-top:1px solid rgba(45,45,68,.7); color:var(--muted); text-align:center; font-size:.8rem; }
+    @media (max-width:600px) {
+      .navbar, .footer, .pricing-page { width:min(100% - 32px,1100px); }
+      .navbar { padding:20px 0; }
+      .brand { font-size:1rem; }
+      .pricing-page { padding:32px 0 48px; }
+    }
+  

@@ -53,6 +53,10 @@ class UnavailableStorage {
     throw this.createError();
   }
 
+  async getUserByCanonicalEmailHash() {
+    throw this.createError();
+  }
+
   async countRecentRateLimitAttempts() {
     throw this.createError();
   }
@@ -70,6 +74,10 @@ class UnavailableStorage {
   }
 
   async consumeRateLimit() {
+    throw this.createError();
+  }
+
+  async peekRateLimit() {
     throw this.createError();
   }
 

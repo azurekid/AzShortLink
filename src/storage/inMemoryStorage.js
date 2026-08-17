@@ -1,6 +1,7 @@
 'use strict';
 
 const { retentionCutoffIso, generateAuditRowKey } = require('../core/audit');
+const { DEFAULT_PLAN_ID } = require('../core/plans');
 const { appendHelpMessage, formatTicketNumber, getHelpMessages } = require('../services/helpRequests');
 
 class InMemoryStorage {
@@ -35,6 +36,7 @@ class InMemoryStorage {
       createdAt,
       status: identity.status || 'active',
       emailHash: identity.emailHash || '',
+      emailCanonicalHash: identity.emailCanonicalHash || '',
       emailMasked: identity.emailMasked || '',
       emailVerifiedAt: identity.emailVerifiedAt || '',
       invitedByUserId: identity.invitedByUserId || '',
@@ -44,7 +46,10 @@ class InMemoryStorage {
       signupDeviceHash: identity.signupDeviceHash || '',
       riskFlags: identity.riskFlags || [],
       branchSuspended: Boolean(identity.branchSuspended),
-      sessionVersion: Number(identity.sessionVersion) || 1
+      sessionVersion: Number(identity.sessionVersion) || 1,
+      plan: identity.plan || DEFAULT_PLAN_ID,
+      planActivatedAt: identity.planActivatedAt || '',
+      planExpiresAt: identity.planExpiresAt || ''
     };
     this.users.set(userId, user);
     return { ...user, passwordHash: undefined };
@@ -70,6 +75,9 @@ class InMemoryStorage {
       riskFlags: user.riskFlags || [],
       branchSuspended: Boolean(user.branchSuspended),
       sessionVersion: Number(user.sessionVersion) || 1,
+      plan: user.plan || DEFAULT_PLAN_ID,
+      planActivatedAt: user.planActivatedAt || '',
+      planExpiresAt: user.planExpiresAt || '',
       createdAt: user.createdAt,
       linkCount: Array.from(this.items.values()).filter((item) => item.ownerId === user.id).length
     }));
@@ -77,6 +85,11 @@ class InMemoryStorage {
 
   async getUserByEmailHash(emailHash) {
     return Array.from(this.users.values()).find((user) => user.emailHash === emailHash) || null;
+  }
+
+  async getUserByCanonicalEmailHash(emailCanonicalHash) {
+    if (!emailCanonicalHash) return null;
+    return Array.from(this.users.values()).find((user) => user.emailCanonicalHash === emailCanonicalHash) || null;
   }
 
   async countRecentRateLimitAttempts(rateKey, sinceIso) {
@@ -102,6 +115,10 @@ class InMemoryStorage {
     this.rateLimitWindows.set(key, count);
     this.rateLimitContext.set(key, context);
     return { allowed: count <= maxRequests, retryAfterSeconds: Math.max(1, Math.ceil(((bucket + 1) * windowMs - now) / 1000)) };
+  }
+
+  async peekRateLimit(rateKey, windowMs, now = Date.now()) {
+    return this.rateLimitWindows.get(`${rateKey}:${Math.floor(now / windowMs)}`) || 0;
   }
 
   async updateUserIdentity(userId, changes) {

@@ -127,6 +127,14 @@ class ShortLinkService {
       return null;
     }
 
+    // Checked before the stats write so an over-quota owner costs one read, not a write too.
+    if (typeof meta.quotaCheck === 'function') {
+      const quota = await meta.quotaCheck(link);
+      if (quota && quota.allowed === false) {
+        return { code: normalizedCode, ownerId: link.ownerId || '', quotaExceeded: true, quota };
+      }
+    }
+
     const nextCount = (Number(link.redirectCount) || 0) + 1;
     const lastAccessedAt = this.now();
     const agent = parseUserAgent(meta.userAgent);
@@ -144,6 +152,7 @@ class ShortLinkService {
 
     return {
       code: normalizedCode,
+      ownerId: link.ownerId || '',
       targetUrl: link.targetUrl,
       redirectCount: nextCount,
       lastAccessedAt

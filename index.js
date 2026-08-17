@@ -14,6 +14,7 @@ const { renderLoginPage } = require('./src/pages/loginPage');
 const { renderForgotPasswordPage } = require('./src/pages/forgotPasswordPage');
 const { renderSignupPage } = require('./src/pages/signupPage');
 const { renderNotFoundPage } = require('./src/pages/notFoundPage');
+const { renderPricingPage } = require('./src/pages/pricingPage');
 const {
   verifyCredentials,
   createSessionToken,
@@ -43,6 +44,8 @@ const {
   buildRiskSignals
 } = require('./src/auth/identity');
 const { sendVerificationEmail } = require('./src/services/email');
+const { canonicalizeEmail, evaluateEmailPolicy } = require('./src/auth/emailPolicy');
+const { DAY_MS, getPlan, isPlanId, listPlans, resolveUserPlan, dailyQuotaReset } = require('./src/core/plans');
 const { createPasswordResetQueue } = require('./src/services/passwordResetQueue');
 const { processPasswordResetMessage } = require('./src/services/passwordResetProcessor');
 const {
@@ -67,30 +70,69 @@ function rateLimitedHandler(handler) {
     const requestContext = buildRateLimitContext(request, 'api');
     const result = await storage.consumeRateLimit(rateKey, apiRateLimitMaxRequests, apiRateLimitWindowMs, Date.now(), requestContext);
     if (!result.allowed) {
-      // Throttled so a sustained flood cannot fill the audit table, while still capturing who it was.
-      if (rateLimitAuditLimiter.shouldRecord(sourceIp)) {
-        await recordAuditEvent(storage, {
-          action: ACTIONS.RATE_LIMITED,
-          ...buildAuditContext(request, { outcome: 'failure' }),
-          details: {
-            scope: 'api',
-            limit: apiRateLimitMaxRequests,
-            windowMs: apiRateLimitWindowMs,
-            retryAfterSeconds: result.retryAfterSeconds
-          }
+      // The shared IP ceiling is only the free-tier baseline: a paid caller gets a second,
+      // higher allowance keyed to their account, so identity is resolved only once it matters.
+      const identity = await resolveIdentity(request);
+      const plan = resolveUserPlan(identity);
+      if (identity && plan.apiRequestsPerMinute > apiRateLimitMaxRequests) {
+        const planKey = hashIdentityValue(`rate-limit:api-plan:${identity.id}`, config.identityHashSecret);
+        const planResult = await storage.consumeRateLimit(
+          planKey,
+          plan.apiRequestsPerMinute,
+          apiRateLimitWindowMs,
+          Date.now(),
+          { ...requestContext, scope: `api-plan:${plan.id}`, actorUsername: identity.username }
+        );
+        if (planResult.allowed) return handler(request, context);
+        return tooManyRequestsResponse(request, storage, planResult, {
+          scope: 'api',
+          plan: plan.id,
+          limit: plan.apiRequestsPerMinute,
+          actorId: identity.id,
+          actorUsername: identity.username,
+          actorRole: identity.role
         });
       }
-      return {
-        status: 429,
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'retry-after': String(result.retryAfterSeconds)
-        },
-        jsonBody: { error: 'Too many requests. Try again later.' }
-      };
+
+      return tooManyRequestsResponse(request, storage, result, {
+        scope: 'api',
+        plan: plan.id,
+        limit: apiRateLimitMaxRequests,
+        actorId: identity ? identity.id : '',
+        actorUsername: identity ? identity.username : 'anonymous',
+        actorRole: identity ? identity.role : ''
+      });
     }
 
     return handler(request, context);
+  };
+}
+
+async function tooManyRequestsResponse(request, storage, result, { scope, plan, limit, actorId = '', actorUsername = 'anonymous', actorRole = '' }) {
+  // Throttled so a sustained flood cannot fill the audit table, while still capturing who it was.
+  if (rateLimitAuditLimiter.shouldRecord(`${scope}:${actorId || getClientIp(request)}`)) {
+    await recordAuditEvent(storage, {
+      action: ACTIONS.RATE_LIMITED,
+      actorId,
+      actorUsername,
+      actorRole,
+      ...buildAuditContext(request, { outcome: 'failure' }),
+      details: { scope, plan, limit, windowMs: apiRateLimitWindowMs, retryAfterSeconds: result.retryAfterSeconds }
+    });
+  }
+
+  return {
+    status: 429,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'retry-after': String(result.retryAfterSeconds)
+    },
+    jsonBody: {
+      error: 'Too many requests. Try again later.',
+      plan,
+      limit,
+      upgradeUrl: `${config.baseUrl}/pricing`
+    }
   };
 }
 
@@ -171,7 +213,10 @@ function getDeploymentApiIdentity(request) {
       id: config.dashboardUsername.trim(),
       username: config.dashboardUsername.trim(),
       displayName: config.dashboardUsername.trim(),
-      role: 'admin'
+      role: 'admin',
+      // The deployment key belongs to the operator, so it is never held back by plan quotas.
+      plan: 'business',
+      planExpiresAt: ''
     };
   }
 
@@ -186,7 +231,7 @@ async function resolveSessionIdentity(request) {
     const storage = await storagePromise;
     const user = await storage.getUser(sessionIdentity.id);
     return user && (user.status || 'active') === 'active' && !user.branchSuspended && (Number(user.sessionVersion) || 1) === (Number(sessionIdentity.sessionVersion) || 1)
-      ? { id: user.id, username: user.username, displayName: user.displayName, role: user.role }
+      ? { id: user.id, username: user.username, displayName: user.displayName, role: user.role, plan: user.plan || 'free', planExpiresAt: user.planExpiresAt || '' }
       : null;
   } catch {
     return null;
@@ -195,6 +240,17 @@ async function resolveSessionIdentity(request) {
 
 // Personal keys are looked up by hash, so this needs storage and is async.
 async function resolveIdentity(request) {
+  if (identityCache.has(request)) return identityCache.get(request);
+  const identity = await lookupIdentity(request);
+  identityCache.set(request, identity);
+  return identity;
+}
+
+// Rate limiting and the handler itself both need the caller, so the lookup is cached for the
+// lifetime of the request object rather than repeated per consumer.
+const identityCache = new WeakMap();
+
+async function lookupIdentity(request) {
   const sessionIdentity = await resolveSessionIdentity(request);
   if (sessionIdentity) return sessionIdentity;
 
@@ -213,7 +269,7 @@ async function resolveIdentity(request) {
       return null;
     }
 
-    return { id: user.id, username: user.username, displayName: user.displayName, role: user.role };
+    return { id: user.id, username: user.username, displayName: user.displayName, role: user.role, plan: user.plan || 'free', planExpiresAt: user.planExpiresAt || '' };
   } catch {
     return null;
   }
@@ -299,15 +355,44 @@ registerHttp('shortenUrl', {
     }
 
     try {
-      const result = await service.createShortLink(payload, identity.id);
       const storage = await storagePromise;
+      const plan = resolveUserPlan(identity);
+      const quota = await consumeDailyQuota(storage, {
+        scope: 'links',
+        ownerId: identity.id,
+        limit: plan.linksPerDay,
+        context: buildRateLimitContext(request, 'quota:links')
+      });
+      if (!quota.allowed) {
+        await recordQuotaExceeded(storage, request, {
+          scope: 'links',
+          plan: plan.id,
+          limit: plan.linksPerDay,
+          actorId: identity.id,
+          actorUsername: identity.username,
+          actorRole: identity.role
+        });
+        return {
+          status: 429,
+          headers: { 'retry-after': String(quota.retryAfterSeconds) },
+          jsonBody: {
+            error: `Daily limit of ${plan.linksPerDay} new short links reached for the ${plan.name} plan.`,
+            plan: plan.id,
+            limit: plan.linksPerDay,
+            resetAt: quota.resetAt,
+            upgradeUrl: `${config.baseUrl}/pricing`
+          }
+        };
+      }
+
+      const result = await service.createShortLink(payload, identity.id);
       await recordAuditEvent(storage, {
         action: ACTIONS.LINK_CREATED,
         actorId: identity.id,
         actorUsername: identity.username,
         actorRole: identity.role,
         ...buildAuditContext(request),
-        details: { linkCode: result.code, targetUrl: result.targetUrl }
+        details: { linkCode: result.code, targetUrl: result.targetUrl, plan: plan.id }
       });
       return {
         status: 201,
@@ -382,14 +467,33 @@ registerHttp('redirectUrl', {
   route: '{code}',
   handler: async (request) => {
     const service = await servicePromise;
+    const storage = await storagePromise;
     const code = request.params.code;
+    const location = lookupGeoLocation(getClientIp(request));
     let result;
 
     try {
       result = await service.resolveShortLink(code, {
         userAgent: request.headers.get('user-agent'),
         referrer: request.headers.get('referer') || request.headers.get('referrer'),
-        location: lookupGeoLocation(getClientIp(request))
+        location,
+        quotaCheck: async (link) => {
+          if (!link.ownerId) return { allowed: true };
+          const plan = await getOwnerPlan(storage, link.ownerId);
+          return consumeDailyQuota(storage, {
+            scope: 'redirects',
+            ownerId: link.ownerId,
+            limit: plan.redirectsPerDay,
+            context: {
+              sourceIp: getClientIp(request),
+              userAgent: request.headers.get('user-agent') || '',
+              httpMethod: 'GET',
+              requestPath: `/${code}`,
+              actorUsername: link.ownerId,
+              location: location || {}
+            }
+          });
+        }
       });
     } catch (err) {
       if (isStorageUnavailableError(err)) {
@@ -399,9 +503,35 @@ registerHttp('redirectUrl', {
       throw err;
     }
 
+    if (result && result.quotaExceeded) {
+      const plan = await getOwnerPlan(storage, result.ownerId);
+      await recordQuotaExceeded(storage, request, {
+        scope: 'redirects',
+        plan: plan.id,
+        limit: plan.redirectsPerDay,
+        actorId: result.ownerId,
+        actorUsername: result.ownerId,
+        details: { linkCode: result.code }
+      });
+      return {
+        status: 429,
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+          'retry-after': String(result.quota.retryAfterSeconds),
+          ...SECURITY_HEADERS
+        },
+        body: renderNotFoundPage({
+          code: '429',
+          title: 'Daily redirect limit reached',
+          description: 'This short link has reached the redirect limit of its plan for today. It will start working again after the daily reset.',
+          output: `ERROR: Daily redirect quota exhausted for the ${plan.name} plan.`
+        })
+      };
+    }
+
     if (!result) {
       try {
-        const storage = await storagePromise;
         const invite = await storage.getInvite(code);
         if (invite && invite.redeemed) {
           return {
@@ -746,6 +876,55 @@ function buildRateLimitContext(request, scope) {
     actorUsername: sessionIdentity ? sessionIdentity.username : 'anonymous',
     location: lookupGeoLocation(sourceIp) || {}
   };
+}
+
+// Daily plan quotas reuse the storage rate limiter with a 24h window, so the counters expire
+// and get purged on the same path as every other throttle row.
+async function consumeDailyQuota(storage, { scope, ownerId, limit, context = {} }) {
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return { allowed: true, retryAfterSeconds: 0, resetAt: dailyQuotaReset() };
+  }
+
+  const quotaKey = hashIdentityValue(`quota:${scope}:${ownerId}`, config.identityHashSecret);
+  const result = await storage.consumeRateLimit(quotaKey, limit, DAY_MS, Date.now(), {
+    actorUsername: ownerId,
+    ...context,
+    scope: `quota:${scope}`
+  });
+  return { ...result, resetAt: dailyQuotaReset() };
+}
+
+const quotaAuditLimiter = createAuditWriteLimiter({ maxEvents: 3, windowMs: 60 * 60 * 1000 });
+
+// The redirect path would otherwise read the owner profile on every hit; a short TTL keeps a
+// plan change visible within a minute without paying for a lookup per redirect.
+const OWNER_PLAN_CACHE_TTL_MS = 60 * 1000;
+const ownerPlanCache = new Map();
+
+async function getOwnerPlan(storage, ownerId) {
+  const cached = ownerPlanCache.get(ownerId);
+  if (cached && cached.expiresAt > Date.now()) return cached.plan;
+
+  let plan = getPlan('free');
+  try {
+    plan = resolveUserPlan(await storage.getUser(ownerId));
+  } catch {
+    // Fall back to the free plan rather than failing the redirect.
+  }
+  ownerPlanCache.set(ownerId, { plan, expiresAt: Date.now() + OWNER_PLAN_CACHE_TTL_MS });
+  return plan;
+}
+
+async function recordQuotaExceeded(storage, request, { scope, plan, limit, actorId = '', actorUsername = 'anonymous', actorRole = '', details = {} }) {
+  if (!quotaAuditLimiter.shouldRecord(`${scope}:${actorId || getClientIp(request)}`)) return;
+  await recordAuditEvent(storage, {
+    action: ACTIONS.QUOTA_EXCEEDED,
+    actorId,
+    actorUsername,
+    actorRole,
+    ...buildAuditContext(request, { outcome: 'failure' }),
+    details: { scope, plan, limit, period: 'day', ...details }
+  });
 }
 
 // Separate trackers per endpoint so guessing invite codes can't lock a shared account out of
@@ -1316,8 +1495,35 @@ registerHttp('dashboardSignupSubmit', {
 
     try {
       const createdAt = new Date().toISOString();
+      const emailPolicy = evaluateEmailPolicy(email, {
+        blockedDomains: config.blockedEmailDomains,
+        allowedDomains: config.allowedEmailDomains
+      });
+      if (!emailPolicy.allowed) {
+        await signupThrottle.recordFailedAttempt(ip);
+        await recordSignupFailure(storage, request, {
+          userName: username,
+          inviteCode,
+          reason: emailPolicy.reason,
+          details: { emailDomain: emailPolicy.domain }
+        });
+        return {
+          status: 400,
+          headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
+          body: renderSignupPage({
+            invite: inviteCode,
+            error: emailPolicy.reason === 'domain_not_allowed'
+              ? 'Registration is limited to approved email domains.'
+              : 'Disposable and temporary email addresses cannot be used to register.'
+          })
+        };
+      }
+
       const emailHash = hashIdentityValue(email, config.identityHashSecret);
-      if (await storage.getUserByEmailHash(emailHash)) {
+      // Sub-addressed and dotted variants resolve to the same mailbox, so they are matched
+      // against a canonical hash as well as the literal one.
+      const emailCanonicalHash = hashIdentityValue(canonicalizeEmail(email), config.identityHashSecret);
+      if (await storage.getUserByEmailHash(emailHash) || await storage.getUserByCanonicalEmailHash(emailCanonicalHash)) {
         await signupThrottle.recordFailedAttempt(ip);
         await recordSignupFailure(storage, request, { userName: username, inviteCode, reason: 'identity_already_registered' });
         return {
@@ -1367,6 +1573,7 @@ registerHttp('dashboardSignupSubmit', {
         createdAt,
         status: 'pending_email',
         emailHash,
+        emailCanonicalHash,
         emailMasked: maskEmail(email),
         ...ancestry,
         ...riskSignals,
@@ -1953,6 +2160,189 @@ registerHttp('rotateApiKey', {
   }
 });
 
+registerHttp('pricingPage', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'pricing',
+  handler: async (request) => {
+    const identity = await resolveSessionIdentity(request);
+    return {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+      body: renderPricingPage({
+        currentPlanId: identity ? resolveUserPlan(identity).id : '',
+        signedIn: Boolean(identity)
+      })
+    };
+  }
+});
+
+registerHttp('listPlans', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/plans',
+  handler: async () => ({ status: 200, jsonBody: { plans: listPlans() } })
+});
+
+registerHttp('getAccountPlan', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/account/plan',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity) return unauthorizedResponse();
+
+    try {
+      const storage = await storagePromise;
+      const user = await storage.getUser(identity.id);
+      const plan = resolveUserPlan(user || identity);
+      const [linksUsed, redirectsUsed] = await Promise.all([
+        storage.peekRateLimit(hashIdentityValue(`quota:links:${identity.id}`, config.identityHashSecret), DAY_MS),
+        storage.peekRateLimit(hashIdentityValue(`quota:redirects:${identity.id}`, config.identityHashSecret), DAY_MS)
+      ]);
+
+      return {
+        status: 200,
+        jsonBody: {
+          plan: plan.id,
+          planName: plan.name,
+          planExpiresAt: (user && user.planExpiresAt) || '',
+          limits: {
+            linksPerDay: plan.linksPerDay,
+            redirectsPerDay: plan.redirectsPerDay,
+            apiRequestsPerMinute: plan.apiRequestsPerMinute
+          },
+          usage: {
+            linksToday: linksUsed,
+            redirectsToday: redirectsUsed,
+            resetAt: dailyQuotaReset()
+          }
+        }
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
+      throw err;
+    }
+  }
+});
+
+registerHttp('requestPlanChange', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/account/plan',
+  handler: async (request) => {
+    // Session-only: a plan change is a billing action and must not be reachable with an API key.
+    const identity = await resolveSessionIdentity(request);
+    if (!identity) return unauthorizedResponse();
+
+    const payload = await request.json().catch(() => ({}));
+    if (!isPlanId(payload.plan)) return { status: 400, jsonBody: { error: 'A valid plan identifier is required.' } };
+
+    const requestedPlan = getPlan(payload.plan);
+    const currentPlan = resolveUserPlan(identity);
+    if (requestedPlan.id === currentPlan.id) {
+      return { status: 200, jsonBody: { plan: currentPlan.id, pending: false, message: `You are already on the ${currentPlan.name} plan.` } };
+    }
+
+    try {
+      const storage = await storagePromise;
+      // Downgrades cost nothing, so they apply immediately; paid plans wait for activation.
+      if (requestedPlan.priceEurPerMonth === 0) {
+        await storage.updateUserIdentity(identity.id, { plan: requestedPlan.id, planActivatedAt: new Date().toISOString(), planExpiresAt: '' });
+        ownerPlanCache.delete(identity.id);
+        await recordAuditEvent(storage, {
+          action: ACTIONS.PLAN_CHANGED,
+          actorId: identity.id,
+          actorUsername: identity.username,
+          actorRole: identity.role,
+          ...buildAuditContext(request),
+          details: { userName: identity.username, previousPlan: currentPlan.id, plan: requestedPlan.id, changedBy: 'self' }
+        });
+        return { status: 200, jsonBody: { plan: requestedPlan.id, pending: false, message: `Your account is now on the ${requestedPlan.name} plan.` } };
+      }
+
+      await recordAuditEvent(storage, {
+        action: ACTIONS.PLAN_UPGRADE_REQUESTED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: {
+          userName: identity.username,
+          currentPlan: currentPlan.id,
+          requestedPlan: requestedPlan.id,
+          priceEurPerMonth: requestedPlan.priceEurPerMonth
+        }
+      });
+
+      return {
+        status: 202,
+        jsonBody: {
+          plan: currentPlan.id,
+          requestedPlan: requestedPlan.id,
+          pending: true,
+          message: `Upgrade to ${requestedPlan.name} requested. The plan is activated once payment is confirmed.`
+        }
+      };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
+      throw err;
+    }
+  }
+});
+
+registerHttp('setUserPlan', {
+  methods: ['PATCH'],
+  authLevel: 'anonymous',
+  route: 'api/users/{username}/plan',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') return unauthorizedResponse();
+
+    const username = decodeURIComponent(request.params.username || '').trim();
+    const payload = await request.json().catch(() => ({}));
+    if (!isPlanId(payload.plan)) return { status: 400, jsonBody: { error: 'A valid plan identifier is required.' } };
+    const expiresAt = payload.expiresAt ? new Date(payload.expiresAt) : null;
+    if (expiresAt && Number.isNaN(expiresAt.getTime())) {
+      return { status: 400, jsonBody: { error: 'expiresAt must be a valid date.' } };
+    }
+
+    try {
+      const storage = await storagePromise;
+      const target = await storage.getUser(username);
+      if (!target) return { status: 404, jsonBody: { error: 'Profile not found.' } };
+
+      const plan = getPlan(payload.plan);
+      const changes = {
+        plan: plan.id,
+        planActivatedAt: new Date().toISOString(),
+        planExpiresAt: expiresAt ? expiresAt.toISOString() : ''
+      };
+      await storage.updateUserIdentity(target.id, changes);
+      ownerPlanCache.delete(target.id);
+      await recordAuditEvent(storage, {
+        action: ACTIONS.PLAN_CHANGED,
+        actorId: identity.id,
+        actorUsername: identity.username,
+        actorRole: identity.role,
+        ...buildAuditContext(request),
+        details: {
+          userName: username,
+          previousPlan: resolveUserPlan(target).id,
+          plan: plan.id,
+          planExpiresAt: changes.planExpiresAt,
+          changedBy: 'admin'
+        }
+      });
+
+      return { status: 200, jsonBody: { updated: true, username, plan: plan.id, planExpiresAt: changes.planExpiresAt } };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
+      throw err;
+    }
+  }
+});
+
 registerHttp('passkeyRegistrationOptions', {
   methods: ['POST'],
   authLevel: 'anonymous',
@@ -2047,6 +2437,7 @@ registerHttp('getProfile', {
     try {
       const storage = await storagePromise;
       const user = await storage.getUser(identity.username);
+      const plan = resolveUserPlan(user || identity);
       return {
         status: 200,
         jsonBody: {
@@ -2054,7 +2445,15 @@ registerHttp('getProfile', {
           displayName: identity.displayName,
           role: identity.role,
           apiKeyPrefix: (user && user.apiKeyPrefix) || '',
-          apiKeyCreatedAt: (user && user.apiKeyCreatedAt) || ''
+          apiKeyCreatedAt: (user && user.apiKeyCreatedAt) || '',
+          plan: plan.id,
+          planName: plan.name,
+          planExpiresAt: (user && user.planExpiresAt) || '',
+          planLimits: {
+            linksPerDay: plan.linksPerDay,
+            redirectsPerDay: plan.redirectsPerDay,
+            apiRequestsPerMinute: plan.apiRequestsPerMinute
+          }
         }
       };
     } catch (err) {
@@ -2067,8 +2466,7 @@ registerHttp('getProfile', {
   }
 });
 
-registerHttp('helpRequests', {
-  methods: ['GET', 'POST'],
+registerHttp('helpRequests', {  methods: ['GET', 'POST'],
   authLevel: 'anonymous',
   route: 'api/help',
   handler: async (request) => {
@@ -2291,10 +2689,12 @@ const STATIC_ASSETS = new Map([
   ['css/not-found.css', { file: 'css/not-found.css', contentType: 'text/css; charset=utf-8' }],
   ['css/api-docs.css', { file: 'css/api-docs.css', contentType: 'text/css; charset=utf-8' }],
   ['css/custom.css', { file: 'css/custom.css', contentType: 'text/css; charset=utf-8' }],
+  ['css/pricing.css', { file: 'css/pricing.css', contentType: 'text/css; charset=utf-8' }],
   ['js/login.js', { file: 'js/login.js', contentType: 'text/javascript; charset=utf-8' }],
   ['js/signup.js', { file: 'js/signup.js', contentType: 'text/javascript; charset=utf-8' }],
   ['js/forgot-password.js', { file: 'js/forgot-password.js', contentType: 'text/javascript; charset=utf-8' }],
   ['js/api-docs.js', { file: 'js/api-docs.js', contentType: 'text/javascript; charset=utf-8' }],
+  ['js/pricing.js', { file: 'js/pricing.js', contentType: 'text/javascript; charset=utf-8' }],
   ['images/background.jpg', { file: 'images/background.jpg', contentType: 'image/jpeg' }]
 ]);
 
