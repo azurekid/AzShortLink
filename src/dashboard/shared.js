@@ -57,7 +57,7 @@ function renderTabsNav(tabs) {
 // Shown on the Account tab of both dashboards so the current plan, today's usage and the
 // upgrade path live where the rest of the account settings are.
 function renderPlanCard() {
-  return `<section class="card span-full" id="plan-card">
+  return `<section class="card" id="plan-card">
           <div class="card-header"><h2><i class="fas fa-gem"></i>Plan and limits</h2><a class="button-link button-secondary button-compact" href="/pricing" target="_blank" rel="noopener"><i class="fas fa-tags"></i>Compare plans</a></div>
           <p>Current plan: <strong id="plan-name">-</strong> <span class="pill" id="plan-pending" hidden></span></p>
           <div class="plan-usage" id="plan-usage"></div>
@@ -270,24 +270,30 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
     }
     document.getElementById('load-analytics').addEventListener('click', loadAnalytics);
     document.getElementById('analytics-link-select').addEventListener('change', loadAnalytics);
-    document.getElementById('password-form').addEventListener('submit', async (event) => {
+    // The account tab is optional: a dashboard can omit the whole panel.
+    const passwordFormEl = document.getElementById('password-form');
+    if (passwordFormEl) passwordFormEl.addEventListener('submit', async (event) => {
       event.preventDefault();
+      const currentPassword = document.getElementById('current-password').value;
+      const newPassword = document.getElementById('new-account-password').value;
+      if (currentPassword === newPassword) {
+        setPanelStatus('password-status', 'New password must be different from the current password.', 'error');
+        return;
+      }
       setPanelStatus('password-status', 'Updating password...');
       try {
         const result = await apiRequest('/api/profile/password', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            currentPassword: document.getElementById('current-password').value,
-            newPassword: document.getElementById('new-account-password').value
-          })
+          body: JSON.stringify({ currentPassword, newPassword })
         });
         setPanelStatus('password-status', result.message || 'Password updated.', 'success');
         setTimeout(() => { window.location.href = '/dashboard/login'; }, 1500);
       } catch (error) { setPanelStatus('password-status', error.message, 'error'); }
     });
     let generatedApiKey = '';
-    document.getElementById('generate-api-key').addEventListener('click', async () => {
+    const generateApiKeyEl = document.getElementById('generate-api-key');
+    if (generateApiKeyEl) generateApiKeyEl.addEventListener('click', async () => {
       if (!window.confirm('Generate a new API key? Your existing key stops working immediately.')) return;
       setPanelStatus('api-key-status', 'Generating key...');
       try {
@@ -299,12 +305,14 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
         await loadProfile();
       } catch (error) { setPanelStatus('api-key-status', error.message, 'error'); }
     });
-    document.getElementById('copy-api-key').addEventListener('click', async () => {
+    const copyApiKeyEl = document.getElementById('copy-api-key');
+    if (copyApiKeyEl) copyApiKeyEl.addEventListener('click', async () => {
       if (!generatedApiKey) return;
       try { await navigator.clipboard.writeText(generatedApiKey); setPanelStatus('api-key-status', 'API key copied.', 'success'); }
       catch { setPanelStatus('api-key-status', 'Clipboard copy failed. Copy manually.', 'error'); }
     });
-    document.getElementById('register-passkey').addEventListener('click', async () => {
+    const registerPasskeyEl = document.getElementById('register-passkey');
+    if (registerPasskeyEl) registerPasskeyEl.addEventListener('click', async () => {
       setPanelStatus('passkey-status', 'Waiting for your authenticator...');
       try {
         const payload = await apiRequest('/api/profile/passkeys/options', { method: 'POST' });
@@ -316,9 +324,11 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
       } catch (error) { setPanelStatus('passkey-status', error.message || 'Passkey registration failed.', 'error'); }
     });
     async function loadProfile() {
+      const apiKeyPrefixEl = document.getElementById('api-key-prefix');
+      if (!apiKeyPrefixEl) return;
       try {
         const profile = await apiRequest('/api/profile');
-        document.getElementById('api-key-prefix').textContent = profile.apiKeyPrefix ? profile.apiKeyPrefix + '\u2026' : 'none';
+        apiKeyPrefixEl.textContent = profile.apiKeyPrefix ? profile.apiKeyPrefix + '\u2026' : 'none';
         document.getElementById('api-key-created').textContent = profile.apiKeyCreatedAt ? '(created ' + profile.apiKeyCreatedAt + ')' : '';
       } catch (error) { setPanelStatus('api-key-status', error.message, 'error'); }
       await loadPlan();

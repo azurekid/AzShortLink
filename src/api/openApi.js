@@ -191,7 +191,16 @@ function buildOpenApiSpec(baseUrl, options = {}) {
       },
       schemas: {
         Error: { type: 'object', required: ['error'], properties: { error: { type: 'string' } } },
-        ShortLinkRequest: { type: 'object', required: ['url'], properties: { url: { type: 'string', format: 'uri' }, uniqueValue: { type: 'string', pattern: '^[A-Za-z0-9_-]{4,32}$' } } },
+        ShortLinkRequest: {
+          type: 'object',
+          required: ['url'],
+          properties: {
+            url: { type: 'string', format: 'uri', example: 'https://example.com/resource' },
+            // Without an explicit example Swagger UI generates one from the pattern, which
+            // produces a long random-looking alias in the "Try it out" body.
+            uniqueValue: { type: 'string', pattern: '^[A-Za-z0-9_-]{4,32}$', minLength: 4, maxLength: 32, example: 'promo1' }
+          }
+        },
         ShortLink: { type: 'object', properties: { code: { type: 'string' }, shortUrl: { type: 'string', format: 'uri' }, targetUrl: { type: 'string', format: 'uri' } } },
         LinkStats: { type: 'object', properties: { code: { type: 'string' }, targetUrl: { type: 'string', format: 'uri' }, redirectCount: { type: 'integer' }, lastAccessedAt: { type: 'string', format: 'date-time', nullable: true }, ownerId: { type: 'string' } } },
         LinkStatsList: { type: 'object', properties: { baseUrl: { type: 'string', format: 'uri' }, total: { type: 'integer' }, links: { type: 'array', items: { $ref: '#/components/schemas/LinkStats' } } } },

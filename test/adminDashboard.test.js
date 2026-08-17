@@ -24,6 +24,21 @@ test('splits admin management into focused profile, invite, and operations tabs'
   assert.match(html, /Open API reference/);
 });
 
+test('omits the account tab entirely for administrators', () => {
+  const html = renderAdminDashboard('https://azhk.in', {
+    user: { username: 'Admin', displayName: 'Admin', role: 'admin' }
+  });
+
+  assert.doesNotMatch(html, /data-panel="panel-account"/);
+  assert.doesNotMatch(html, /id="panel-account"/);
+  assert.doesNotMatch(html, /id="password-form"/);
+  assert.doesNotMatch(html, /id="plan-card"/);
+  assert.doesNotMatch(html, /id="generate-api-key"/);
+  // The shared script must tolerate the missing panel instead of throwing on a null element.
+  assert.match(html, /if \(passwordFormEl\)/);
+  assert.match(html, /if \(generateApiKeyEl\)/);
+});
+
 test('surfaces pending plan requests, help requests and approvals in a banner', () => {
   const html = renderAdminDashboard('https://azhk.in', {
     user: { username: 'Admin', displayName: 'Admin', role: 'admin' }

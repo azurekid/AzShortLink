@@ -786,6 +786,9 @@ registerHttp('changePassword', {
     if (newPassword.length < 12) {
       return { status: 400, jsonBody: { error: 'New password must be at least 12 characters.' } };
     }
+    if (newPassword === currentPassword) {
+      return { status: 400, jsonBody: { error: 'New password must be different from the current password.' } };
+    }
 
     try {
       const storage = await storagePromise;
@@ -1129,6 +1132,9 @@ registerHttp('resetPasswordSubmit', {
     }
     if (newPassword.length < 12 || newPassword !== confirmPassword) {
       return { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS }, body: renderForgotPasswordPage({ resetToken: token, error: 'Passwords must match and contain at least 12 characters.' }) };
+    }
+    if (user.passwordHash && await bcrypt.compare(newPassword, user.passwordHash)) {
+      return { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS }, body: renderForgotPasswordPage({ resetToken: token, error: 'New password must be different from your current password.' }) };
     }
     await storage.updateUserPassword(user.id, await bcrypt.hash(newPassword, 12));
     await recordAuditEvent(storage, {

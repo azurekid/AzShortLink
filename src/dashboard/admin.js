@@ -5,7 +5,6 @@ const {
   renderDocumentHead,
   renderAppHeader,
   renderTabsNav,
-  renderPlanCard,
   coreClientScript
 } = require('./shared');
 
@@ -37,7 +36,6 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     ${renderTabsNav([
       { panel: 'panel-links', label: 'Links', icon: 'link' },
       { panel: 'panel-analytics', label: 'Statistics', icon: 'chart-bar' },
-      { panel: 'panel-account', label: 'Account', icon: 'user' },
       { panel: 'panel-profiles', label: 'Profiles', icon: 'users' },
       { panel: 'panel-invites', label: 'Invites', icon: 'user-plus' },
       { panel: 'panel-help', label: 'Help', icon: 'circle-question' },
@@ -67,7 +65,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           <p class="mono">GET /api/stats</p>
           <p class="mono">GET /api/analytics</p>
           <p class="mono">DELETE /api/links/{code}</p>
-          <p>An API key is required to call these endpoints. Create one from the Account tab.</p>
+          <p>An API key is required to call these endpoints. Use the deployment key or a personal key.</p>
           <a class="button-link button-secondary" href="/api"><i class="fas fa-book-open"></i>Open API reference</a>
         </section>
         <section class="card span-full">
@@ -140,42 +138,6 @@ ${renderDocumentHead('AzShortLink Dashboard')}
         <section class="card span-full">
           <div class="card-header"><h2><i class="fas fa-stream"></i>Recent activity</h2></div>
           <div class="table-wrap"><table><thead><tr><th>Code</th><th>Last redirect</th></tr></thead><tbody id="recent-links-body"><tr><td colspan="2">No data yet.</td></tr></tbody></table></div>
-        </section>
-      </div>
-    </section>
-
-    <section id="panel-account" class="tab-panel" role="tabpanel" hidden>
-      <div class="content-grid">
-        <section class="card">
-          <div class="card-header"><h2><i class="fas fa-user-circle"></i>Profile</h2></div>
-          <p>Signed in as <span class="mono">${safeUsername}</span>.</p>
-          <p>Usernames are case-sensitive.</p>
-        </section>
-        ${renderPlanCard()}
-        <section class="card">
-          <div class="card-header"><h2><i class="fas fa-key"></i>Change password</h2></div>
-          <form id="password-form" class="stack">
-            <div class="field"><label for="current-password">Current password</label><input id="current-password" type="password" autocomplete="current-password" required /></div>
-            <div class="field"><label for="new-account-password">New password (min 12 characters)</label><input id="new-account-password" type="password" minlength="12" autocomplete="new-password" required /></div>
-            <button type="submit"><i class="fas fa-save"></i>Update password</button>
-          </form>
-          <div id="password-status" class="status" role="status" aria-live="polite"></div>
-        </section>
-        <section class="card span-full">
-          <div class="card-header"><h2><i class="fas fa-code"></i>Personal API key</h2><button id="generate-api-key" class="button-secondary button-compact" type="button"><i class="fas fa-rotate"></i>Generate new key</button></div>
-          <p>Use a personal API key to call the API from scripts or CI. The key inherits your profile's permissions, so links you create with it belong to you.</p>
-          <p>Current key: <span class="mono" id="api-key-prefix">none</span> <span class="mono" id="api-key-created"></span></p>
-          <div id="api-key-reveal" class="key-reveal" hidden>
-            <strong><i class="fas fa-triangle-exclamation"></i> Copy this key now &mdash; it is shown only once.</strong>
-            <div class="key-value" id="api-key-value"></div>
-            <div class="actions"><button id="copy-api-key" class="button-secondary button-compact" type="button"><i class="fas fa-copy"></i>Copy key</button></div>
-          </div>
-          <div id="api-key-status" class="status" role="status" aria-live="polite"></div>
-        </section>
-        <section class="card span-full">
-          <div class="card-header"><h2><i class="fas fa-fingerprint"></i>Passkeys</h2><button id="register-passkey" class="button-secondary button-compact" type="button">Add passkey</button></div>
-          <p>Use a device passkey for passwordless sign-in. Your password remains available for recovery.</p>
-          <div id="passkey-status" class="status" role="status" aria-live="polite"></div>
         </section>
       </div>
     </section>
@@ -314,8 +276,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       if (tab.dataset.panel === 'panel-profiles') loadUsers();
       if (tab.dataset.panel === 'panel-invites') loadInvites();
         if (tab.dataset.panel === 'panel-help') loadHelpRequests();
-        if (tab.dataset.panel === 'panel-audit') loadAuditLog();
-        if (tab.dataset.panel === 'panel-account') loadProfile();`
+        if (tab.dataset.panel === 'panel-audit') loadAuditLog();`
   })}
     async function loadHelpRequests() {
       const container = document.getElementById('help-requests');

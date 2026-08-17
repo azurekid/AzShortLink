@@ -26,6 +26,13 @@ test('builds a user OpenAPI document without administrator operations by default
   assert.ok(spec.components.securitySchemes.ApiKeyHeader);
 });
 
+test('the custom alias example stays short instead of being generated from the pattern', () => {
+  const alias = buildOpenApiSpec('https://short.example').components.schemas.ShortLinkRequest.properties.uniqueValue;
+
+  assert.ok(alias.example.length <= 6, alias.example);
+  assert.match(alias.example, new RegExp(alias.pattern));
+});
+
 test('includes administrator operations for an admin document', () => {
   const spec = buildOpenApiSpec('https://short.example', { includeAdmin: true });
 

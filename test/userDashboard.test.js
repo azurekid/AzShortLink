@@ -40,6 +40,14 @@ test('renders statistics, account and delete controls', () => {
   assert.match(html, /title="Download QR code"/);
 });
 
+test('refuses a new password that matches the current one', () => {
+  const html = renderUserDashboard('https://azhk.in', {
+    user: { username: 'Alice', displayName: 'Alice', role: 'user' }
+  });
+
+  assert.match(html, /New password must be different from the current password\./);
+});
+
 test('shows the current plan, usage and an upgrade path under Account', () => {
   const html = renderUserDashboard('https://azhk.in', {
     user: { username: 'Alice', displayName: 'Alice', role: 'user' }
