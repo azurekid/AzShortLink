@@ -40,6 +40,21 @@ test('renders statistics, account and delete controls', () => {
   assert.match(html, /title="Download QR code"/);
 });
 
+test('shows the current plan, usage and an upgrade path under Account', () => {
+  const html = renderUserDashboard('https://azhk.in', {
+    user: { username: 'Alice', displayName: 'Alice', role: 'user' }
+  });
+
+  assert.match(html, /id="plan-card"/);
+  assert.match(html, /id="plan-name"/);
+  assert.match(html, /id="plan-usage"/);
+  assert.match(html, /href="\/pricing"/);
+  assert.match(html, /apiRequest\('\/api\/account\/plan'\)/);
+  assert.match(html, /data-request-plan=/);
+  // A submitted upgrade stays visible until an administrator activates it.
+  assert.match(html, /awaiting activation/);
+});
+
 test('provides a help tab for submitting requests and viewing responses', () => {
   const html = renderUserDashboard('https://azhk.in', {
     user: { username: 'Alice', displayName: 'Alice', role: 'user' }
@@ -106,8 +121,9 @@ test('does not expose any admin-only markup or script to a non-admin user', () =
 
 test('inline dashboard script is syntactically valid JavaScript', () => {
   const html = renderUserDashboard('https://azhk.in', { user: { username: 'x', displayName: 'X', role: 'user' } });
-  const script = html.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1];
+  const script = html.match(/<script nonce="[^"]*">([\s\S]*?)<\/script>/)[1];
 
+  assert.ok(script.includes('loadPlan'), 'expected the inline script, not an external one');
   // Throws a SyntaxError if a template-literal escaping bug (e.g. a bare \n or \r\n)
   // broke a nested string/regex literal across a real line break.
   assert.doesNotThrow(() => new Function(script), 'inline script is invalid');

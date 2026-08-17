@@ -97,7 +97,9 @@ class TableStorage {
         sessionVersion: Number(identity.sessionVersion) || 1,
         plan: identity.plan || DEFAULT_PLAN_ID,
         planActivatedAt: identity.planActivatedAt || '',
-        planExpiresAt: identity.planExpiresAt || ''
+        planExpiresAt: identity.planExpiresAt || '',
+        pendingPlan: identity.pendingPlan || '',
+        pendingPlanRequestedAt: identity.pendingPlanRequestedAt || ''
       });
     } catch (err) {
       if (err && (err.statusCode === 409 || err.code === 'EntityAlreadyExists')) {
@@ -144,7 +146,9 @@ class TableStorage {
         sessionVersion: Number(item.sessionVersion) || 1,
         plan: item.plan || DEFAULT_PLAN_ID,
         planActivatedAt: item.planActivatedAt || '',
-        planExpiresAt: item.planExpiresAt || ''
+        planExpiresAt: item.planExpiresAt || '',
+        pendingPlan: item.pendingPlan || '',
+        pendingPlanRequestedAt: item.pendingPlanRequestedAt || ''
       };
     } catch (err) {
       if (err && err.statusCode === 404) {
@@ -179,7 +183,9 @@ class TableStorage {
         sessionVersion: Number(item.sessionVersion) || 1,
         plan: item.plan || DEFAULT_PLAN_ID,
         planActivatedAt: item.planActivatedAt || '',
-        planExpiresAt: item.planExpiresAt || ''
+        planExpiresAt: item.planExpiresAt || '',
+        pendingPlan: item.pendingPlan || '',
+        pendingPlanRequestedAt: item.pendingPlanRequestedAt || ''
       });
     }
 

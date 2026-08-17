@@ -5,6 +5,7 @@ const {
   renderDocumentHead,
   renderAppHeader,
   renderTabsNav,
+  renderPlanCard,
   coreClientScript
 } = require('./shared');
 
@@ -32,6 +33,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
   <main class="app-shell">
     ${renderAppHeader({ safeDisplayName, safeRole })}
     <section class="page-intro"><p class="eyebrow">Link operations</p><h1>Short links, without the busywork.</h1><p>Managing links for <span class="mono">${safeBaseUrl}</span> across all profiles.</p>${legacyConfigWarning}</section>
+    <div id="admin-alerts" class="alert-banner" role="status" aria-live="polite" hidden></div>
     ${renderTabsNav([
       { panel: 'panel-links', label: 'Links', icon: 'link' },
       { panel: 'panel-analytics', label: 'Statistics', icon: 'chart-bar' },
@@ -149,6 +151,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           <p>Signed in as <span class="mono">${safeUsername}</span>.</p>
           <p>Usernames are case-sensitive.</p>
         </section>
+        ${renderPlanCard()}
         <section class="card">
           <div class="card-header"><h2><i class="fas fa-key"></i>Change password</h2></div>
           <form id="password-form" class="stack">
@@ -337,6 +340,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       try {
         await apiRequest('/api/admin/help/' + encodeURIComponent(button.dataset.helpId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: button.dataset.helpStatus }) });
         await loadHelpRequests();
+        await loadNotifications();
       } catch (error) { setPanelStatus('help-status', error.message, 'error'); }
     });
     document.getElementById('help-requests').addEventListener('submit', async (event) => {
@@ -347,8 +351,50 @@ ${renderDocumentHead('AzShortLink Dashboard')}
       try {
         await apiRequest('/api/admin/help/' + encodeURIComponent(form.dataset.helpId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ response: form.querySelector('textarea').value }) });
         await loadHelpRequests();
+        await loadNotifications();
       } catch (error) { setPanelStatus('help-status', error.message, 'error'); }
     });
+    // Pending plan requests, help requests and approvals are only actionable if an admin sees
+    // them without opening every tab first.
+    async function loadNotifications() {
+      const banner = document.getElementById('admin-alerts');
+      if (!banner) return;
+      try {
+        const data = await apiRequest('/api/admin/notifications');
+        const items = [];
+        for (const planRequest of data.planRequests || []) {
+          items.push('<li><i class="fas fa-gem"></i><span><strong>' + escapeHtml(planRequest.displayName) + '</strong> requested the ' +
+            escapeHtml(planRequest.requestedPlan) + ' plan' + (planRequest.requestedAt ? ' on ' + escapeHtml(formatDateTime(planRequest.requestedAt)) : '') + '.</span>' +
+            '<button class="button-compact" type="button" data-activate-plan="' + escapeHtml(planRequest.username) + '" data-plan="' + escapeHtml(planRequest.requestedPlan) + '">Activate</button>' +
+            '<button class="button-secondary button-compact" type="button" data-goto-panel="panel-profiles">Open profiles</button></li>');
+        }
+        if (data.openHelpRequests) {
+          items.push('<li><i class="fas fa-comments"></i><span>' + data.openHelpRequests + ' open help request(s).</span>' +
+            '<button class="button-secondary button-compact" type="button" data-goto-panel="panel-help">Open help</button></li>');
+        }
+        if (data.pendingApprovals) {
+          items.push('<li><i class="fas fa-user-check"></i><span>' + data.pendingApprovals + ' profile(s) awaiting approval.</span>' +
+            '<button class="button-secondary button-compact" type="button" data-goto-panel="panel-profiles">Open profiles</button></li>');
+        }
+        banner.hidden = !items.length;
+        banner.innerHTML = items.length ? '<ul class="alert-list">' + items.join('') + '</ul>' : '';
+      } catch { banner.hidden = true; }
+    }
+    const alertsEl = document.getElementById('admin-alerts');
+    if (alertsEl) alertsEl.addEventListener('click', async (event) => {
+      const gotoButton = event.target.closest('[data-goto-panel]');
+      if (gotoButton) {
+        const tab = document.querySelector('.tab[data-panel="' + gotoButton.dataset.gotoPanel + '"]');
+        if (tab) tab.click();
+        return;
+      }
+      const activateButton = event.target.closest('[data-activate-plan]');
+      if (!activateButton) return;
+      activateButton.disabled = true;
+      try { await setUserPlan(activateButton.dataset.activatePlan, activateButton.dataset.plan); }
+      catch (error) { setPanelStatus('users-status', error.message, 'error'); activateButton.disabled = false; }
+    });
+    loadNotifications();
     async function loadUsers() {
       const body = document.getElementById('users-body');
       if (!body) return;
@@ -357,29 +403,36 @@ ${renderDocumentHead('AzShortLink Dashboard')}
         if (!data.users.length) { body.innerHTML = '<p>No profiles found.</p>'; return; }
         body.innerHTML = data.users.map((item) => {
           const isSelf = item.username === CURRENT_USERNAME;
-          const accessAction = item.status === 'pending_approval'
-            ? '<button class="button-secondary button-compact" type="button" data-approve-user="' + escapeHtml(item.username) + '">Approve</button> '
-            : '';
-          const roleAction = !isSelf
-            ? '<button class="button-secondary button-compact" type="button" data-role-user="' + escapeHtml(item.username) + '" data-next-role="' + (item.role === 'admin' ? 'user' : 'admin') + '">' + (item.role === 'admin' ? 'Make user' : 'Make admin') + '</button> '
-            : '';
-          const branchAction = '<button class="button-secondary button-compact" type="button" data-branch-user="' + escapeHtml(item.username) + '" data-suspended="' + (!item.branchSuspended) + '">' + (item.branchSuspended ? 'Restore branch' : 'Suspend branch') + '</button> ';
           const currentPlan = item.plan || 'free';
-          const planAction = '<select class="button-secondary button-compact" aria-label="Plan for ' + escapeHtml(item.username) + '" data-plan-user="' + escapeHtml(item.username) + '">' +
-            ['free', 'pro', 'business'].map((plan) => '<option value="' + plan + '"' + (plan === currentPlan ? ' selected' : '') + '>' + plan + ' plan</option>').join('') +
-            '</select> ';
-          const actions = accessAction + roleAction + branchAction + planAction + '<button class="button-secondary button-compact" type="button" data-reset-user="' + escapeHtml(item.username) + '">Reset password</button>' +
-            (isSelf ? '' : ' <button class="button-danger button-compact" type="button" data-delete-user="' + escapeHtml(item.username) + '">Delete</button>');
+          const approveAction = item.status === 'pending_approval'
+            ? '<button class="button-secondary button-compact" type="button" data-approve-user="' + escapeHtml(item.username) + '">Approve</button>'
+            : '';
+          const planRequestAction = item.pendingPlan
+            ? '<button class="button-compact" type="button" data-plan-user="' + escapeHtml(item.username) + '" data-plan-value="' + escapeHtml(item.pendingPlan) + '">Activate ' + escapeHtml(item.pendingPlan) + '</button>'
+            : '';
+          // Everything else lives behind one menu so a row stays readable at a glance.
+          const menuItems = (!isSelf
+            ? '<button class="button-secondary button-compact" type="button" data-role-user="' + escapeHtml(item.username) + '" data-next-role="' + (item.role === 'admin' ? 'user' : 'admin') + '">' + (item.role === 'admin' ? 'Make user' : 'Make admin') + '</button>'
+            : '') +
+            '<button class="button-secondary button-compact" type="button" data-branch-user="' + escapeHtml(item.username) + '" data-suspended="' + (!item.branchSuspended) + '">' + (item.branchSuspended ? 'Restore branch' : 'Suspend branch') + '</button>' +
+            '<label class="profile-menu-field"><span>Plan</span><select aria-label="Plan for ' + escapeHtml(item.username) + '" data-plan-user="' + escapeHtml(item.username) + '">' +
+              ['free', 'pro', 'business'].map((plan) => '<option value="' + plan + '"' + (plan === currentPlan ? ' selected' : '') + '>' + plan + '</option>').join('') +
+            '</select></label>' +
+            '<button class="button-secondary button-compact" type="button" data-reset-user="' + escapeHtml(item.username) + '">Reset password</button>' +
+            (isSelf ? '' : '<button class="button-danger button-compact" type="button" data-delete-user="' + escapeHtml(item.username) + '">Delete</button>');
+          const actions = approveAction + planRequestAction +
+            '<details class="profile-menu"><summary class="button-secondary button-compact">Manage</summary><div class="profile-menu-items">' + menuItems + '</div></details>';
           const initial = escapeHtml((item.displayName || item.username || '?').slice(0, 1).toUpperCase());
           const joined = item.createdAt ? String(item.createdAt).slice(0, 10) : '-';
           const riskSummary = (item.riskFlags || []).length ? ' / ' + item.riskFlags.join(', ') : '';
           const trustState = (item.branchSuspended ? 'branch suspended' : (item.status || 'active')) + riskSummary;
+          const planState = escapeHtml(currentPlan) + (item.pendingPlan ? ' <span class="pill warn">wants ' + escapeHtml(item.pendingPlan) + '</span>' : '');
           return '<article class="profile-row">' +
             '<div class="profile-identity"><span class="profile-avatar">' + initial + '</span><div class="profile-name"><strong>' + escapeHtml(item.displayName || item.username) + '</strong><span class="mono">' + escapeHtml(item.username) + '</span></div></div>' +
             '<div class="profile-meta">' +
               '<div class="profile-fact"><span>Access</span><strong><span class="pill ' + (item.role === 'admin' ? 'admin' : '') + '">' + escapeHtml(item.role) + '</span></strong></div>' +
               '<div class="profile-fact"><span>Trust</span><strong>' + escapeHtml(trustState) + '</strong></div>' +
-              '<div class="profile-fact"><span>Plan</span><strong>' + escapeHtml(currentPlan) + (item.planExpiresAt ? ' / until ' + escapeHtml(String(item.planExpiresAt).slice(0, 10)) : '') + '</strong></div>' +
+              '<div class="profile-fact"><span>Plan</span><strong>' + planState + '</strong></div>' +
               '<div class="profile-fact"><span>Sponsor / depth</span><strong title="' + escapeHtml(item.invitedByUserId || 'Root profile') + '">' + escapeHtml(item.invitedByUserId || 'root') + ' / ' + escapeHtml(item.inviteDepth || 0) + '</strong></div>' +
               '<div class="profile-fact"><span>Activity / joined</span><strong>' + escapeHtml(item.linkCount ?? 0) + ' links / ' + escapeHtml(joined) + '</strong></div>' +
             '</div><div class="profile-actions">' + actions + '</div></article>';
@@ -389,19 +442,28 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     const loadUsersButton = document.getElementById('load-users');
     if (loadUsersButton) loadUsersButton.addEventListener('click', loadUsers);
     const usersBodyEl = document.getElementById('users-body');
+    async function setUserPlan(username, plan) {
+      await apiRequest('/api/users/' + encodeURIComponent(username) + '/plan', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan }) });
+      await loadUsers();
+      await loadNotifications();
+    }
     if (usersBodyEl) usersBodyEl.addEventListener('change', async (event) => {
-      const planSelect = event.target.closest('[data-plan-user]');
+      const planSelect = event.target.closest('select[data-plan-user]');
       if (!planSelect) return;
-      try {
-        await apiRequest('/api/users/' + encodeURIComponent(planSelect.dataset.planUser) + '/plan', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: planSelect.value }) });
-        await loadUsers();
-      } catch (error) { setPanelStatus('users-status', error.message, 'error'); }
+      try { await setUserPlan(planSelect.dataset.planUser, planSelect.value); }
+      catch (error) { setPanelStatus('users-status', error.message, 'error'); }
     });
     if (usersBodyEl) usersBodyEl.addEventListener('click', async (event) => {
+      const planButton = event.target.closest('button[data-plan-user]');
+      if (planButton) {
+        try { await setUserPlan(planButton.dataset.planUser, planButton.dataset.planValue); }
+        catch (error) { setPanelStatus('users-status', error.message, 'error'); }
+        return;
+      }
       const approveButton = event.target.closest('[data-approve-user]');
       if (approveButton) {
         await apiRequest('/api/users/' + encodeURIComponent(approveButton.dataset.approveUser) + '/access', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'active' }) });
-        await loadUsers(); return;
+        await loadUsers(); await loadNotifications(); return;
       }
       const roleButton = event.target.closest('[data-role-user]');
       if (roleButton) {

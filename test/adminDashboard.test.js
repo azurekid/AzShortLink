@@ -24,6 +24,32 @@ test('splits admin management into focused profile, invite, and operations tabs'
   assert.match(html, /Open API reference/);
 });
 
+test('surfaces pending plan requests, help requests and approvals in a banner', () => {
+  const html = renderAdminDashboard('https://azhk.in', {
+    user: { username: 'Admin', displayName: 'Admin', role: 'admin' }
+  });
+
+  assert.match(html, /id="admin-alerts"/);
+  assert.match(html, /apiRequest\('\/api\/admin\/notifications'\)/);
+  assert.match(html, /data-activate-plan=/);
+  assert.match(html, /data-goto-panel="panel-help"/);
+  assert.match(html, /data-goto-panel="panel-profiles"/);
+  // The banner loads on page load, not only when the Profiles tab is opened.
+  assert.match(html, /\n    loadNotifications\(\);/);
+});
+
+test('collapses per-profile management into a single menu', () => {
+  const html = renderAdminDashboard('https://azhk.in', {
+    user: { username: 'Admin', displayName: 'Admin', role: 'admin' }
+  });
+
+  assert.match(html, /class="profile-menu"><summary/);
+  assert.match(html, /profile-menu-items/);
+  // Only the two time-sensitive actions stay outside the menu.
+  assert.match(html, /data-approve-user=/);
+  assert.match(html, /data-plan-value=/);
+});
+
 test('shows an invite links panel to admins listing every invite, not just their own', () => {
   const html = renderAdminDashboard('https://azhk.in', {
     user: { username: 'Admin', displayName: 'Admin', role: 'admin' }
@@ -83,8 +109,9 @@ test('gives admins an audit trail tab with filters and CSV export', () => {
 
 test('inline dashboard script is syntactically valid JavaScript', () => {
   const html = renderAdminDashboard('https://azhk.in', { user: { username: 'x', displayName: 'X', role: 'admin' } });
-  const script = html.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1];
+  const script = html.match(/<script nonce="[^"]*">([\s\S]*?)<\/script>/)[1];
 
+  assert.ok(script.includes('loadNotifications'), 'expected the inline script, not an external one');
   // Throws a SyntaxError if a template-literal escaping bug (e.g. a bare \n or \r\n)
   // broke a nested string/regex literal across a real line break.
   assert.doesNotThrow(() => new Function(script), 'inline script is invalid');

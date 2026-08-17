@@ -154,6 +154,12 @@ function buildOpenApiSpec(baseUrl, options = {}) {
           responses: { 200: jsonResponse('UpdateResponse'), 400: errorResponse(), 401: errorResponse(), 404: errorResponse() }
         })
       },
+      '/api/admin/notifications': {
+        get: adminOperation('List items awaiting administrator action', 'Administration', {
+          description: 'Pending plan requests, open help requests and profiles awaiting approval.',
+          responses: { 200: jsonResponse('AdminNotificationsResponse'), 401: errorResponse() }
+        })
+      },
       '/api/audit': {
         get: adminOperation('List audit events', 'Administration', {
           parameters: [
@@ -206,12 +212,27 @@ function buildOpenApiSpec(baseUrl, options = {}) {
           type: 'object',
           properties: {
             plan: { type: 'string' }, planName: { type: 'string' }, planExpiresAt: { type: 'string' },
+            pendingPlan: { type: 'string', description: 'Plan the account requested; activated by an administrator.' },
+            pendingPlanRequestedAt: { type: 'string' },
             limits: { type: 'object', properties: { linksPerDay: { type: 'integer' }, redirectsPerDay: { type: 'integer' }, apiRequestsPerMinute: { type: 'integer' } } },
             usage: { type: 'object', properties: { linksToday: { type: 'integer' }, redirectsToday: { type: 'integer' }, resetAt: { type: 'string', format: 'date-time' } } }
           }
         },
         PlanChangeRequest: { type: 'object', required: ['plan'], properties: { plan: { type: 'string', enum: ['free', 'pro', 'business'] } } },
         PlanChangeResponse: { type: 'object', properties: { plan: { type: 'string' }, requestedPlan: { type: 'string' }, pending: { type: 'boolean' }, message: { type: 'string' } } },
+        AdminNotificationsResponse: {
+          type: 'object',
+          properties: {
+            total: { type: 'integer' }, openHelpRequests: { type: 'integer' }, pendingApprovals: { type: 'integer' },
+            planRequests: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { username: { type: 'string' }, displayName: { type: 'string' }, currentPlan: { type: 'string' }, requestedPlan: { type: 'string' }, requestedAt: { type: 'string', format: 'date-time' } }
+              }
+            }
+          }
+        },
         SetUserPlanRequest: { type: 'object', required: ['plan'], properties: { plan: { type: 'string', enum: ['free', 'pro', 'business'] }, expiresAt: { type: 'string', format: 'date-time', description: 'Optional end of the paid period; the account falls back to Free afterwards.' } } },
         ChangePasswordRequest: { type: 'object', required: ['currentPassword', 'newPassword'], properties: { currentPassword: { type: 'string', format: 'password' }, newPassword: { type: 'string', format: 'password', minLength: 12 } } },
         ResetPasswordRequest: { type: 'object', required: ['newPassword'], properties: { newPassword: { type: 'string', format: 'password', minLength: 12 } } },

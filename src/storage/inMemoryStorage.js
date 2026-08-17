@@ -49,7 +49,9 @@ class InMemoryStorage {
       sessionVersion: Number(identity.sessionVersion) || 1,
       plan: identity.plan || DEFAULT_PLAN_ID,
       planActivatedAt: identity.planActivatedAt || '',
-      planExpiresAt: identity.planExpiresAt || ''
+      planExpiresAt: identity.planExpiresAt || '',
+      pendingPlan: identity.pendingPlan || '',
+      pendingPlanRequestedAt: identity.pendingPlanRequestedAt || ''
     };
     this.users.set(userId, user);
     return { ...user, passwordHash: undefined };
@@ -78,6 +80,8 @@ class InMemoryStorage {
       plan: user.plan || DEFAULT_PLAN_ID,
       planActivatedAt: user.planActivatedAt || '',
       planExpiresAt: user.planExpiresAt || '',
+      pendingPlan: user.pendingPlan || '',
+      pendingPlanRequestedAt: user.pendingPlanRequestedAt || '',
       createdAt: user.createdAt,
       linkCount: Array.from(this.items.values()).filter((item) => item.ownerId === user.id).length
     }));

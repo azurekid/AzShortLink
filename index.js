@@ -2207,6 +2207,8 @@ registerHttp('getAccountPlan', {
           plan: plan.id,
           planName: plan.name,
           planExpiresAt: (user && user.planExpiresAt) || '',
+          pendingPlan: (user && user.pendingPlan) || '',
+          pendingPlanRequestedAt: (user && user.pendingPlanRequestedAt) || '',
           limits: {
             linksPerDay: plan.linksPerDay,
             redirectsPerDay: plan.redirectsPerDay,
@@ -2248,7 +2250,7 @@ registerHttp('requestPlanChange', {
       const storage = await storagePromise;
       // Downgrades cost nothing, so they apply immediately; paid plans wait for activation.
       if (requestedPlan.priceEurPerMonth === 0) {
-        await storage.updateUserIdentity(identity.id, { plan: requestedPlan.id, planActivatedAt: new Date().toISOString(), planExpiresAt: '' });
+        await storage.updateUserIdentity(identity.id, { plan: requestedPlan.id, planActivatedAt: new Date().toISOString(), planExpiresAt: '', pendingPlan: '', pendingPlanRequestedAt: '' });
         ownerPlanCache.delete(identity.id);
         await recordAuditEvent(storage, {
           action: ACTIONS.PLAN_CHANGED,
@@ -2261,6 +2263,8 @@ registerHttp('requestPlanChange', {
         return { status: 200, jsonBody: { plan: requestedPlan.id, pending: false, message: `Your account is now on the ${requestedPlan.name} plan.` } };
       }
 
+      // Queued on the profile so administrators see the request in the dashboard, not only in the audit log.
+      await storage.updateUserIdentity(identity.id, { pendingPlan: requestedPlan.id, pendingPlanRequestedAt: new Date().toISOString() });
       await recordAuditEvent(storage, {
         action: ACTIONS.PLAN_UPGRADE_REQUESTED,
         actorId: identity.id,
@@ -2316,7 +2320,9 @@ registerHttp('setUserPlan', {
       const changes = {
         plan: plan.id,
         planActivatedAt: new Date().toISOString(),
-        planExpiresAt: expiresAt ? expiresAt.toISOString() : ''
+        planExpiresAt: expiresAt ? expiresAt.toISOString() : '',
+        pendingPlan: '',
+        pendingPlanRequestedAt: ''
       };
       await storage.updateUserIdentity(target.id, changes);
       ownerPlanCache.delete(target.id);
@@ -2336,6 +2342,47 @@ registerHttp('setUserPlan', {
       });
 
       return { status: 200, jsonBody: { updated: true, username, plan: plan.id, planExpiresAt: changes.planExpiresAt } };
+    } catch (err) {
+      if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
+      throw err;
+    }
+  }
+});
+
+registerHttp('adminNotifications', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'api/admin/notifications',
+  handler: async (request) => {
+    const identity = await resolveIdentity(request);
+    if (!identity || identity.role !== 'admin') return unauthorizedResponse();
+
+    try {
+      const storage = await storagePromise;
+      const [users, helpRequests] = await Promise.all([storage.listUsers(), storage.listHelpRequests()]);
+      const planRequests = users
+        .filter((user) => user.pendingPlan && isPlanId(user.pendingPlan))
+        .map((user) => ({
+          username: user.username,
+          displayName: user.displayName || user.username,
+          currentPlan: resolveUserPlan(user).id,
+          requestedPlan: user.pendingPlan,
+          requestedAt: user.pendingPlanRequestedAt || ''
+        }))
+        .sort((left, right) => String(right.requestedAt).localeCompare(String(left.requestedAt)));
+
+      const openHelpRequests = helpRequests.filter((item) => item.status === 'open').length;
+      const pendingApprovals = users.filter((user) => user.status === 'pending_approval').length;
+
+      return {
+        status: 200,
+        jsonBody: {
+          planRequests,
+          openHelpRequests,
+          pendingApprovals,
+          total: planRequests.length + openHelpRequests + pendingApprovals
+        }
+      };
     } catch (err) {
       if (isStorageUnavailableError(err)) return unavailableStorageResponse(err);
       throw err;

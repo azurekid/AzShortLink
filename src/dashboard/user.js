@@ -5,6 +5,7 @@ const {
   renderDocumentHead,
   renderAppHeader,
   renderTabsNav,
+  renderPlanCard,
   coreClientScript
 } = require('./shared');
 
@@ -147,6 +148,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
           <p>Signed in as <span class="mono">${safeUsername}</span>.</p>
           <p>Usernames are case-sensitive.</p>
         </section>
+        ${renderPlanCard()}
         <section class="card">
           <div class="card-header"><h2><i class="fas fa-key"></i>Change password</h2></div>
           <form id="password-form" class="stack">

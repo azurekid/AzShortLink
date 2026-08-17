@@ -54,6 +54,18 @@ function renderTabsNav(tabs) {
     </nav>`;
 }
 
+// Shown on the Account tab of both dashboards so the current plan, today's usage and the
+// upgrade path live where the rest of the account settings are.
+function renderPlanCard() {
+  return `<section class="card span-full" id="plan-card">
+          <div class="card-header"><h2><i class="fas fa-gem"></i>Plan and limits</h2><a class="button-link button-secondary button-compact" href="/pricing" target="_blank" rel="noopener"><i class="fas fa-tags"></i>Compare plans</a></div>
+          <p>Current plan: <strong id="plan-name">-</strong> <span class="pill" id="plan-pending" hidden></span></p>
+          <div class="plan-usage" id="plan-usage"></div>
+          <div class="actions" id="plan-upgrade-actions"></div>
+          <div id="plan-status" class="status" role="status" aria-live="polite"></div>
+        </section>`;
+}
+
 // The shared core client script: DOM handles, status helpers, apiRequest, the create-link
 // form, the links table, and the statistics/account tabs. Role-specific behavior (which tabs
 // exist, the owner column, admin-only management panels) is layered on by each caller.
@@ -309,7 +321,53 @@ function coreClientScript({ safeUsername, safeBaseUrl, colspan, ownerColumnScrip
         document.getElementById('api-key-prefix').textContent = profile.apiKeyPrefix ? profile.apiKeyPrefix + '\u2026' : 'none';
         document.getElementById('api-key-created').textContent = profile.apiKeyCreatedAt ? '(created ' + profile.apiKeyCreatedAt + ')' : '';
       } catch (error) { setPanelStatus('api-key-status', error.message, 'error'); }
-    }`;
+      await loadPlan();
+    }
+    let availablePlans = [];
+    function renderPlanUsage(account) {
+      const rows = [
+        { label: 'New links today', used: account.usage.linksToday, limit: account.limits.linksPerDay },
+        { label: 'Redirects today', used: account.usage.redirectsToday, limit: account.limits.redirectsPerDay },
+        { label: 'API requests per minute', used: null, limit: account.limits.apiRequestsPerMinute }
+      ];
+      return rows.map((row) => {
+        const percentage = row.used === null ? 0 : Math.min(100, Math.round((row.used / row.limit) * 100));
+        const value = row.used === null ? row.limit.toLocaleString() : row.used.toLocaleString() + ' / ' + row.limit.toLocaleString();
+        return '<div class="plan-usage-row"><span>' + escapeHtml(row.label) + '</span><div class="plan-bar"><i style="width:' + percentage + '%"></i></div><strong>' + escapeHtml(value) + '</strong></div>';
+      }).join('');
+    }
+    async function loadPlan() {
+      const card = document.getElementById('plan-card');
+      if (!card) return;
+      try {
+        if (!availablePlans.length) availablePlans = (await apiRequest('/api/plans')).plans || [];
+        const account = await apiRequest('/api/account/plan');
+        document.getElementById('plan-name').textContent = account.planName + (account.planExpiresAt ? ' (until ' + formatDateTime(account.planExpiresAt) + ')' : '');
+        const pending = document.getElementById('plan-pending');
+        pending.hidden = !account.pendingPlan;
+        pending.textContent = account.pendingPlan ? 'Upgrade to ' + account.pendingPlan + ' awaiting activation' : '';
+        document.getElementById('plan-usage').innerHTML = renderPlanUsage(account) +
+          '<p class="plan-reset mono">Daily counters reset ' + escapeHtml(formatDateTime(account.usage.resetAt)) + '</p>';
+        document.getElementById('plan-upgrade-actions').innerHTML = availablePlans
+          .filter((plan) => plan.id !== account.plan)
+          .map((plan) => '<button class="button-secondary button-compact" type="button" data-request-plan="' + escapeHtml(plan.id) + '">' +
+            (plan.priceEurPerMonth === 0 ? 'Switch to ' : 'Request ') + escapeHtml(plan.name) + '</button>')
+          .join('');
+      } catch (error) { setPanelStatus('plan-status', error.message, 'error'); }
+    }
+    const planActionsEl = document.getElementById('plan-upgrade-actions');
+    if (planActionsEl) planActionsEl.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-request-plan]');
+      if (!button) return;
+      setPanelStatus('plan-status', 'Submitting plan request...');
+      try {
+        const result = await apiRequest('/api/account/plan', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: button.dataset.requestPlan })
+        });
+        setPanelStatus('plan-status', result.message || 'Plan request submitted.', 'success');
+        await loadPlan();
+      } catch (error) { setPanelStatus('plan-status', error.message, 'error'); }
+    });`;
 }
 
 module.exports = {
@@ -318,5 +376,6 @@ module.exports = {
   renderDocumentHead,
   renderAppHeader,
   renderTabsNav,
+  renderPlanCard,
   coreClientScript
 };

@@ -168,7 +168,7 @@ Every account is on a plan that caps daily volume, because each redirect is a Fu
 | Pro | &euro;9 | 250 | 25,000 | 600 |
 | Business | &euro;49 | 2,000 | 250,000 | 3,000 |
 
-Counters reset at 00:00 UTC and exceeded limits return HTTP 429; links are never removed. `/pricing` lists the plans, `GET /api/account/plan` reports the current limits and usage, and `POST /api/account/plan` records an upgrade request. Paid plans are activated by an administrator with `PATCH /api/users/{username}/plan` once payment is confirmed; an optional `expiresAt` makes the account fall back to Free automatically. No payment provider is wired in.
+Counters reset at 00:00 UTC and exceeded limits return HTTP 429; links are never removed. `/pricing` lists the plans, and the Account tab of the dashboard shows the current plan, today's usage and the upgrade buttons. `POST /api/account/plan` queues the request on the profile, which surfaces it in the admin dashboard banner together with open help requests and pending approvals (`GET /api/admin/notifications`). An administrator activates the plan from that banner or with `PATCH /api/users/{username}/plan`; an optional `expiresAt` makes the account fall back to Free automatically. No payment provider is wired in.
 
 Disposable and temporary mailbox providers are rejected at signup from a bundled domain list. Sub-addressed and dotted variants of the same mailbox are canonicalized before the duplicate check, so one inbox cannot register repeatedly.
 
