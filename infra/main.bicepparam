@@ -15,9 +15,10 @@ param keyVaultPurgeProtectionEnabled = true
 // param tableName   = 'AzShortLinks'
 // param usersTableName = 'AzShortLinksUsers'
 // param auditTableName = 'AzShortLinksAudit'
-// param corsAllowedOrigins = [
-//   'https://azhk.in'
-// ]
+param corsAllowedOrigins = [
+  'https://azhk.in'
+  'https://stazshortlinkhome.z6.web.core.windows.net'
+]
 // param localDevCorsAllowedOrigins = [
 //   'http://localhost:3000'
 //   'http://localhost:5173'

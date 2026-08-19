@@ -2889,7 +2889,6 @@ const STATIC_ASSETS = new Map([
   ['js/forgot-password.js', { file: 'js/forgot-password.js', contentType: 'text/javascript; charset=utf-8' }],
   ['js/api-docs.js', { file: 'js/api-docs.js', contentType: 'text/javascript; charset=utf-8' }],
   ['js/pricing.js', { file: 'js/pricing.js', contentType: 'text/javascript; charset=utf-8' }],
-  ['js/support-button.js', { file: 'js/support-button.js', contentType: 'text/javascript; charset=utf-8' }],
   ['images/background.jpg', { file: 'images/background.jpg', contentType: 'image/jpeg' }]
 ]);
 

@@ -277,7 +277,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     loadStats();
     loadMyInvite();
   </script>
-  <script src="/assets/js/support-button.js" defer></script>
+  <a class="bmc-fab" href="https://www.buymeacoffee.com/DijkmanRogier" target="_blank" rel="noopener noreferrer" aria-label="Support AzShortLink on Buy Me a Coffee"><span class="bmc-fab-emoji" aria-hidden="true">&#9749;</span><span class="bmc-fab-text">Buy me a coffee</span></a>
 </body>
 </html>`;
 }
