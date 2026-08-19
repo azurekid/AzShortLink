@@ -32,7 +32,7 @@ function renderHomePage(options = {}) {
 </head>
 <body>
   <nav class="navbar" aria-label="Main navigation">
-    <a class="brand" href="/">AzShortLink <span>// URL service</span></a>
+    <a class="brand" href="/home">AzShortLink <span>// URL service</span></a>
     <div class="nav-links">
       <a class="nav-link" href="/pricing">Pricing</a>
       <a class="nav-link" href="/api">API</a>
@@ -90,7 +90,7 @@ function renderHomePage(options = {}) {
         invite only and is never shared or used for marketing.
       </p>
       ${renderNotice(options)}
-      <form method="post" action="/" class="request-form">
+      <form method="post" action="/home" class="request-form">
         <label for="request-email">Email address</label>
         <input id="request-email" name="email" type="email" autocomplete="email" required maxlength="254" value="${email}" />
 

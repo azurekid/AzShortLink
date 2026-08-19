@@ -366,8 +366,9 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
           value: '1'
         }
         {
-          // Without this, Azure serves its built-in "Functions app is up and running" splash
-          // page for GET / on custom domains, hiding our own root route handler.
+          // The Functions host answers GET / itself and never routes it to a function, so the
+          // choice is only between its splash page and an empty 204. The landing page is served
+          // from /home; redirect / to it at the edge (Front Door/CDN/Cloudflare rule).
           name: 'AzureWebJobsDisableHomepage'
           value: 'true'
         }

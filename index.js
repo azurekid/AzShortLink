@@ -427,19 +427,24 @@ registerHttp('shortenUrl', {
   }
 });
 
-// The root is a public landing page and is deliberately a separate trigger from `redirectUrl`:
-// hitting `/` must never run short-link resolution, quota accounting or click tracking.
-registerHttp('root', {
+// The Functions host's homepage middleware answers the bare `/` itself (204 when
+// AzureWebJobsDisableHomepage=true, otherwise the built-in splash) and never routes it to a
+// function, so the landing page lives on a real path and `/` has to be redirected at the edge.
+const LANDING_PATH = 'home';
+
+// Deliberately a separate trigger from `redirectUrl`: the landing page must never run
+// short-link resolution, quota accounting or click tracking.
+registerHttp('landingPage', {
   methods: ['GET'],
   authLevel: 'anonymous',
-  route: '',
+  route: LANDING_PATH,
   handler: async () => landingPageResponse()
 });
 
 registerHttp('accessRequestSubmit', {
   methods: ['POST'],
   authLevel: 'anonymous',
-  route: '',
+  route: LANDING_PATH,
   handler: async (request) => {
     const genericMessage = 'Thanks. Your request has been received; an administrator will email you an invite link if it is approved.';
     const ip = getClientIp(request);
@@ -537,7 +542,9 @@ registerHttp('redirectUrl', {
     const service = await servicePromise;
     const storage = await storagePromise;
     const code = request.params.code;
-    if (!code) return landingPageResponse();
+    if (!code) {
+      return { status: 302, headers: { location: `/${LANDING_PATH}`, 'cache-control': 'no-store' } };
+    }
     const location = lookupGeoLocation(getClientIp(request));
     let result;
 

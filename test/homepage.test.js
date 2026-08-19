@@ -21,7 +21,7 @@ test('landing page explains the service and offers an invite request form', () =
 
   assert.match(html, /Ad-free/i);
   assert.match(html, /No third-party trackers/i);
-  assert.match(html, /<form method="post" action="\/" class="request-form">/);
+  assert.match(html, /<form method="post" action="\/home" class="request-form">/);
   assert.match(html, /name="email"/);
   assert.match(html, /name="reason"/);
   assert.match(html, /href="\/dashboard\/login"/);
