@@ -17,12 +17,21 @@ function getExternalRequestOrigin(request) {
   }
 }
 
-function isAllowedRequestOrigin(request, configuredBaseUrl) {
+function isAllowedRequestOrigin(request, configuredBaseUrl, extraAllowedOrigins = []) {
   const fetchSite = firstHeaderValue(request.headers.get('sec-fetch-site')).toLowerCase();
-  if (fetchSite === 'same-origin') return true;
-  if (fetchSite === 'cross-site') return false;
-
   const origin = request.headers.get('origin');
+
+  if (fetchSite === 'cross-site') {
+    // Cross-site is only permitted for routes that opt in with an explicit allowlist (e.g. a
+    // separately hosted static landing page), and only when the browser-supplied Origin matches.
+    if (!origin || !extraAllowedOrigins.length) return false;
+    try {
+      return extraAllowedOrigins.includes(new URL(origin).origin);
+    } catch {
+      return false;
+    }
+  }
+  if (fetchSite === 'same-origin') return true;
   if (!origin) return true;
 
   let suppliedOrigin;
@@ -35,7 +44,8 @@ function isAllowedRequestOrigin(request, configuredBaseUrl) {
   return new Set([
     new URL(request.url).origin,
     new URL(configuredBaseUrl).origin,
-    getExternalRequestOrigin(request)
+    getExternalRequestOrigin(request),
+    ...extraAllowedOrigins
   ]).has(suppliedOrigin);
 }
 

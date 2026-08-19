@@ -2,6 +2,21 @@
 
 const { parseDomainList } = require('../auth/emailPolicy');
 
+function parseOriginList(value) {
+  return String(value || '')
+    .split(/[,\s]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      try {
+        return new URL(entry).origin;
+      } catch {
+        return '';
+      }
+    })
+    .filter(Boolean);
+}
+
 function getConfig() {
   const apiKey = process.env.SHORTLINK_API_KEY || '';
   const dashboardPasswordHash = process.env.DASHBOARD_PASSWORD_HASH || '';
@@ -27,7 +42,11 @@ function getConfig() {
     emailSenderAddress: process.env.EMAIL_SENDER_ADDRESS || '',
     // Extends the bundled disposable-domain list; the allowlist, when set, wins over both.
     blockedEmailDomains: parseDomainList(process.env.EMAIL_DOMAIN_BLOCKLIST),
-    allowedEmailDomains: parseDomainList(process.env.EMAIL_DOMAIN_ALLOWLIST)
+    allowedEmailDomains: parseDomainList(process.env.EMAIL_DOMAIN_ALLOWLIST),
+    // Browser origins allowed to POST to /api/access-requests cross-site (e.g. a landing page
+    // hosted on Azure Storage static website on a separate domain). Empty by default: the public
+    // form endpoint then only accepts same-origin submissions.
+    accessRequestAllowedOrigins: parseOriginList(process.env.ACCESS_REQUEST_ALLOWED_ORIGINS)
   };
 }
 

@@ -54,3 +54,22 @@ test('rejects browser-confirmed cross-site requests even with a spoofed forwarde
 test('allows requests without Origin such as server clients and same-origin legacy forms', () => {
   assert.equal(isAllowedRequestOrigin(request({ host: 'azhk.in' }), 'https://azhk.in'), true);
 });
+
+test('rejects cross-site requests when no allowlist is provided', () => {
+  const incoming = request({ origin: 'https://landing.example', fetchSite: 'cross-site' });
+
+  assert.equal(isAllowedRequestOrigin(incoming, 'https://azhk.in'), false);
+});
+
+test('allows a cross-site request only when its origin is in the explicit allowlist', () => {
+  const incoming = request({ origin: 'https://landing.example', fetchSite: 'cross-site' });
+
+  assert.equal(isAllowedRequestOrigin(incoming, 'https://azhk.in', ['https://landing.example']), true);
+  assert.equal(isAllowedRequestOrigin(incoming, 'https://azhk.in', ['https://other.example']), false);
+});
+
+test('rejects an allowlisted cross-site request with no Origin header', () => {
+  const incoming = request({ fetchSite: 'cross-site' });
+
+  assert.equal(isAllowedRequestOrigin(incoming, 'https://azhk.in', ['https://landing.example']), false);
+});

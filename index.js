@@ -137,14 +137,14 @@ async function tooManyRequestsResponse(request, storage, result, { scope, plan, 
   };
 }
 
-function registerHttp(name, { allowCrossOrigin = false, ...options }) {
+function registerHttp(name, { crossOriginAllowlist = [], ...options }) {
   const routedHandler = options.route.startsWith('api/') ? rateLimitedHandler(options.handler) : options.handler;
   const handler = async (request, context) => {
     const method = String(request.method || 'GET').toUpperCase();
-    // allowCrossOrigin is only for public, side-effect-light endpoints (e.g. the invite request
-    // form) that a separately hosted static landing page must be able to POST to; it carries no
-    // session/cookie and is already IP-throttled, so cross-site submission is not a CSRF risk.
-    if (!allowCrossOrigin && !['GET', 'HEAD', 'OPTIONS'].includes(method) && !isAllowedRequestOrigin(request, config.baseUrl)) {
+    // crossOriginAllowlist is only for public, side-effect-light endpoints (e.g. the invite
+    // request form used by a separately hosted static landing page); it carries no
+    // session/cookie, is IP-throttled, and only origins on the explicit allowlist are accepted.
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !isAllowedRequestOrigin(request, config.baseUrl, crossOriginAllowlist)) {
       return { status: 403, headers: { ...SECURITY_HEADERS }, jsonBody: { error: 'Cross-origin request denied.' } };
     }
     const response = await routedHandler(request, context);
@@ -455,15 +455,17 @@ registerHttp('accessRequestSubmit', {
 });
 
 // A separately hosted static landing page (e.g. Storage static website on another domain)
-// cannot use the HTML form above, so it submits here as JSON instead; CORS is granted per
-// origin via the platform-level `corsAllowedOrigins` Bicep parameter.
+// cannot use the HTML form above, so it submits here as JSON instead. Only origins on the
+// explicit allowlist may call this cross-site, and only as JSON: browsers can't send a JSON
+// body from a plain HTML form, so this forces a CORS preflight and rules out blind CSRF
+// submissions from arbitrary third-party pages.
 registerHttp('accessRequestApi', {
   methods: ['POST'],
   authLevel: 'anonymous',
   route: 'api/access-requests',
-  allowCrossOrigin: true,
+  crossOriginAllowlist: config.accessRequestAllowedOrigins,
   handler: async (request) => {
-    const result = await processAccessRequest(request);
+    const result = await processAccessRequest(request, { requireJson: true });
     return {
       status: result.status,
       jsonBody: result.error ? { error: result.error } : { message: result.message }
@@ -471,15 +473,22 @@ registerHttp('accessRequestApi', {
   }
 });
 
-async function processAccessRequest(request) {
+// Bounds ACCESS_REQUEST_* audit writes so a flood of anonymous submissions can't fill the table.
+const accessRequestAuditLimiter = createAuditWriteLimiter({ maxEvents: LOGIN_MAX_ATTEMPTS, windowMs: LOGIN_LOCKOUT_MS });
+
+async function processAccessRequest(request, { requireJson = false } = {}) {
   const genericMessage = 'Thanks. Your request has been received; an administrator will email you an invite link if it is approved.';
   const ip = getClientIp(request);
   if (await accessRequestThrottle.isLockedOut(ip)) {
-    await accessRequestThrottle.recordLockout(request);
+    await accessRequestThrottle.recordLockout(request, { endpoint: requireJson ? 'api' : 'form' });
     return { status: 429, error: 'Too many requests. Please try again later.' };
   }
 
   const contentType = request.headers.get('content-type') || '';
+  if (requireJson && !contentType.includes('application/json')) {
+    return { status: 400, error: 'Requests must be sent as JSON.' };
+  }
+
   let email = '';
   let reason = '';
   try {
@@ -506,8 +515,30 @@ async function processAccessRequest(request) {
   // Every submission counts toward the throttle; there is no "success" that clears it.
   await accessRequestThrottle.recordFailedAttempt(ip, request);
 
+  const storage = await storagePromise;
+
   try {
-    const storage = await storagePromise;
+    // Sub-addressed and dotted variants resolve to the same mailbox as at signup; matched
+    // against both hashes so an already-registered user can't be re-invited or enumerated
+    // through response timing/content differences.
+    const emailHash = hashIdentityValue(email, config.identityHashSecret);
+    const emailCanonicalHash = hashIdentityValue(canonicalizeEmail(email), config.identityHashSecret);
+    const alreadyRegistered = Boolean(
+      (await storage.getUserByEmailHash(emailHash)) || (await storage.getUserByCanonicalEmailHash(emailCanonicalHash))
+    );
+
+    if (alreadyRegistered) {
+      if (accessRequestAuditLimiter.shouldRecord(ip)) {
+        await recordAuditEvent(storage, {
+          action: ACTIONS.ACCESS_REQUEST_IGNORED,
+          ...buildAuditContext(request, { outcome: 'success' }),
+          details: { reason: 'already_registered' }
+        });
+      }
+      // Identical response to a fresh request: the caller can't tell an account already exists.
+      return { status: 200, message: genericMessage };
+    }
+
     await storage.createHelpRequest({
       id: crypto.randomUUID(),
       userId: ACCESS_REQUEST_USER_ID,
@@ -516,6 +547,14 @@ async function processAccessRequest(request) {
       message: `Email: ${email}\n\n${reason || 'No additional details provided.'}`,
       createdAt: new Date().toISOString()
     });
+
+    if (accessRequestAuditLimiter.shouldRecord(ip)) {
+      await recordAuditEvent(storage, {
+        action: ACTIONS.ACCESS_REQUEST_SUBMITTED,
+        ...buildAuditContext(request, { outcome: 'success' }),
+        details: { maskedEmail: maskEmail(email), hasReason: Boolean(reason) }
+      });
+    }
   } catch (err) {
     if (isStorageUnavailableError(err)) {
       return { status: 503, error: 'The service is temporarily unavailable. Please try again later.', email, reason };

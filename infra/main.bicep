@@ -424,6 +424,13 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
           name: 'EMAIL_SENDER_ADDRESS'
           value: emailSenderAddress
         }
+        {
+          // Browser origins allowed to POST to /api/access-requests cross-site, e.g. a landing
+          // page hosted separately on Azure Storage static website. Mirrors corsAllowedOrigins so
+          // there is one source of truth for "who else may call this app from a browser".
+          name: 'ACCESS_REQUEST_ALLOWED_ORIGINS'
+          value: join(effectiveCorsOrigins, ',')
+        }
       ]
     }
   }
