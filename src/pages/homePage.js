@@ -80,6 +80,18 @@ function renderHomePage(options = {}) {
         <h2>Invite-only accounts</h2>
         <p>Accounts are created by invitation, which keeps the service free of spam and abusive redirects.</p>
       </article>
+      <article class="feature">
+        <h2>Secured end to end</h2>
+        <p>Every request runs behind TLS with a strict Content-Security-Policy, hashed identifiers and audited access, so your links and account stay protected.</p>
+      </article>
+      <article class="feature">
+        <h2>Passkey authentication</h2>
+        <p>Sign in with a passkey instead of a password. Phishing-resistant, device-bound and backed by WebAuthn.</p>
+      </article>
+      <article class="feature">
+        <h2>Hosted in Europe</h2>
+        <p>Your links, accounts and analytics are hosted on Azure infrastructure in the EU, keeping your data close to home.</p>
+      </article>
     </section>
 
     <section class="request" id="request-access" aria-labelledby="request-heading">

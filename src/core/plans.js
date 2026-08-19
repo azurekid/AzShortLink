@@ -18,20 +18,20 @@ const PLANS = Object.freeze({
   pro: Object.freeze({
     id: 'pro',
     name: 'Pro',
-    priceEurPerMonth: 9,
-    linksPerDay: 250,
-    redirectsPerDay: 25000,
+    priceEurPerMonth: 4.99,
+    linksPerDay: 100,
+    redirectsPerDay: 10000,
     apiRequestsPerMinute: 600,
-    highlights: Object.freeze(['250 new short links per day', '25,000 redirects per day', '600 API requests per minute'])
+    highlights: Object.freeze(['100 new short links per day', '10,000 redirects per day', '600 API requests per minute'])
   }),
   business: Object.freeze({
     id: 'business',
     name: 'Business',
-    priceEurPerMonth: 49,
-    linksPerDay: 2000,
-    redirectsPerDay: 250000,
+    priceEurPerMonth: 12.99,
+    linksPerDay: 1000,
+    redirectsPerDay: 50000,
     apiRequestsPerMinute: 3000,
-    highlights: Object.freeze(['2,000 new short links per day', '250,000 redirects per day', '3,000 API requests per minute'])
+    highlights: Object.freeze(['1,000 new short links per day', '50,000 redirects per day', '3,000 API requests per minute'])
   })
 });
 
