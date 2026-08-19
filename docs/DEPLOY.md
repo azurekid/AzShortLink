@@ -204,7 +204,54 @@ If invited signup returns `Account verification email is unavailable`, verify th
 
 Click geography is resolved locally with the GeoIP database installed by `npm ci`; no external geolocation API or key is required. Redeploy after dependency updates to refresh that database. The statistics map loads tiles from `tile.openstreetmap.org`, which must remain reachable from dashboard browsers.
 
-## 8. Secret Rotation
+## 8. Landing Page on a Separate Domain (optional)
+
+The `/` route on the Function App's own hostname cannot be used: the platform's built-in
+homepage middleware intercepts requests to the bare root before they reach any function,
+returning either an empty `204` (when `AzureWebJobsDisableHomepage=true`) or its own splash
+page. The app's landing page therefore lives at `$BASE_URL/home`, and [static-site/](../static-site)
+holds a copy that can instead be hosted on a second domain — e.g. a Storage account with the
+static website feature enabled — with `/` redirecting there at the DNS/CDN edge.
+
+1. Create the storage account and enable the static website endpoint:
+
+   ```bash
+   LANDING_STORAGE_ACCOUNT='stazshortlinkhome'
+   az storage account create --name "$LANDING_STORAGE_ACCOUNT" --resource-group "$RESOURCE_GROUP" \
+     --location "$LOCATION" --sku Standard_LRS --kind StorageV2 --allow-blob-public-access true
+   az storage blob service-properties update --account-name "$LANDING_STORAGE_ACCOUNT" \
+     --static-website --index-document index.html --404-document index.html
+   ```
+
+2. Update `static-site/index.html` and `static-site/assets/js/request-access.js` if the Function
+   App is not `https://azhk.in`, then upload:
+
+   ```bash
+   az storage blob upload-batch --account-name "$LANDING_STORAGE_ACCOUNT" \
+     --auth-mode login -d '$web' -s static-site
+   ```
+
+3. Storage static websites don't support HTTPS on a custom domain directly; put Azure CDN or
+   Front Door in front of the `$web` endpoint, or use the plain
+   `https://<account>.z<n>.web.core.windows.net` endpoint for the DNS redirect target.
+
+4. Add the landing page's origin to CORS so its JS can call
+   `POST $BASE_URL/api/access-requests` (used by `static-site/assets/js/request-access.js`
+   instead of the Function App's own HTML form at `/home`), then redeploy:
+
+   ```bash
+   az deployment group create \
+     --name main \
+     --resource-group "$RESOURCE_GROUP" \
+     --template-file infra/main.bicep \
+     --parameters infra/main.bicepparam \
+     --parameters corsAllowedOrigins='["https://azhk.in","https://<landing-page-origin>"]'
+   ```
+
+5. Point the registrar/DNS provider's `/` redirect (Cloudflare Redirect Rule, Front Door rule,
+   etc.) at the static website endpoint, since the apex still can't serve it directly.
+
+
 
 App settings use versionless Key Vault references:
 

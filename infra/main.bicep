@@ -69,7 +69,7 @@ param usersTableName string = '${tableName}Users'
 @description('Table Storage table name for the security audit trail. Kept separate from link and user data to limit the blast radius of a misconfiguration.')
 param auditTableName string = '${tableName}Audit'
 
-@description('Allowed production/browser origins for CORS (include the deployed UI origin).')
+@description('Allowed production/browser origins for CORS (include the deployed UI origin). Add a second origin here if the landing page in static-site/ is hosted separately, e.g. on Azure Storage static website.')
 param corsAllowedOrigins array = [
   baseUrl
 ]

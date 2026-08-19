@@ -137,11 +137,14 @@ async function tooManyRequestsResponse(request, storage, result, { scope, plan, 
   };
 }
 
-function registerHttp(name, options) {
+function registerHttp(name, { allowCrossOrigin = false, ...options }) {
   const routedHandler = options.route.startsWith('api/') ? rateLimitedHandler(options.handler) : options.handler;
   const handler = async (request, context) => {
     const method = String(request.method || 'GET').toUpperCase();
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !isAllowedRequestOrigin(request, config.baseUrl)) {
+    // allowCrossOrigin is only for public, side-effect-light endpoints (e.g. the invite request
+    // form) that a separately hosted static landing page must be able to POST to; it carries no
+    // session/cookie and is already IP-throttled, so cross-site submission is not a CSRF risk.
+    if (!allowCrossOrigin && !['GET', 'HEAD', 'OPTIONS'].includes(method) && !isAllowedRequestOrigin(request, config.baseUrl)) {
       return { status: 403, headers: { ...SECURITY_HEADERS }, jsonBody: { error: 'Cross-origin request denied.' } };
     }
     const response = await routedHandler(request, context);
@@ -446,61 +449,83 @@ registerHttp('accessRequestSubmit', {
   authLevel: 'anonymous',
   route: LANDING_PATH,
   handler: async (request) => {
-    const genericMessage = 'Thanks. Your request has been received; an administrator will email you an invite link if it is approved.';
-    const ip = getClientIp(request);
-    if (await accessRequestThrottle.isLockedOut(ip)) {
-      await accessRequestThrottle.recordLockout(request);
-      return landingPageResponse({ status: 429, error: 'Too many requests. Please try again later.' });
-    }
-
-    const contentType = request.headers.get('content-type') || '';
-    let email = '';
-    let reason = '';
-    try {
-      if (contentType.includes('application/json')) {
-        const body = await request.json();
-        email = normalizeEmail(body.email);
-        reason = typeof body.reason === 'string' ? body.reason.trim() : '';
-      } else {
-        const form = new URLSearchParams(await request.text());
-        email = normalizeEmail(form.get('email'));
-        reason = (form.get('reason') || '').trim();
-      }
-    } catch {
-      return landingPageResponse({ status: 400, error: 'Unable to read the request. Please try again.' });
-    }
-
-    if (!email || !EMAIL_PATTERN.test(email) || email.length > 254) {
-      return landingPageResponse({ status: 400, error: 'Enter a valid email address.', reason });
-    }
-    if (reason.length > 1000) {
-      return landingPageResponse({ status: 400, error: 'Keep the note under 1000 characters.', email });
-    }
-
-    // Every submission counts toward the throttle; there is no "success" that clears it.
-    await accessRequestThrottle.recordFailedAttempt(ip, request);
-
-    try {
-      const storage = await storagePromise;
-      await storage.createHelpRequest({
-        id: crypto.randomUUID(),
-        userId: ACCESS_REQUEST_USER_ID,
-        username: ACCESS_REQUEST_USER_ID,
-        subject: `Invite request from ${maskEmail(email)}`,
-        message: `Email: ${email}\n\n${reason || 'No additional details provided.'}`,
-        createdAt: new Date().toISOString()
-      });
-    } catch (err) {
-      if (isStorageUnavailableError(err)) {
-        return landingPageResponse({ status: 503, error: 'The service is temporarily unavailable. Please try again later.', email, reason });
-      }
-      console.error('[signup] Unable to store the access request.', { code: err.code, message: err.message });
-      return landingPageResponse({ status: 500, error: 'Unable to submit the request. Please try again later.', email, reason });
-    }
-
-    return landingPageResponse({ message: genericMessage });
+    const result = await processAccessRequest(request);
+    return landingPageResponse(result);
   }
 });
+
+// A separately hosted static landing page (e.g. Storage static website on another domain)
+// cannot use the HTML form above, so it submits here as JSON instead; CORS is granted per
+// origin via the platform-level `corsAllowedOrigins` Bicep parameter.
+registerHttp('accessRequestApi', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'api/access-requests',
+  allowCrossOrigin: true,
+  handler: async (request) => {
+    const result = await processAccessRequest(request);
+    return {
+      status: result.status,
+      jsonBody: result.error ? { error: result.error } : { message: result.message }
+    };
+  }
+});
+
+async function processAccessRequest(request) {
+  const genericMessage = 'Thanks. Your request has been received; an administrator will email you an invite link if it is approved.';
+  const ip = getClientIp(request);
+  if (await accessRequestThrottle.isLockedOut(ip)) {
+    await accessRequestThrottle.recordLockout(request);
+    return { status: 429, error: 'Too many requests. Please try again later.' };
+  }
+
+  const contentType = request.headers.get('content-type') || '';
+  let email = '';
+  let reason = '';
+  try {
+    if (contentType.includes('application/json')) {
+      const body = await request.json();
+      email = normalizeEmail(body.email);
+      reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    } else {
+      const form = new URLSearchParams(await request.text());
+      email = normalizeEmail(form.get('email'));
+      reason = (form.get('reason') || '').trim();
+    }
+  } catch {
+    return { status: 400, error: 'Unable to read the request. Please try again.' };
+  }
+
+  if (!email || !EMAIL_PATTERN.test(email) || email.length > 254) {
+    return { status: 400, error: 'Enter a valid email address.', reason };
+  }
+  if (reason.length > 1000) {
+    return { status: 400, error: 'Keep the note under 1000 characters.', email };
+  }
+
+  // Every submission counts toward the throttle; there is no "success" that clears it.
+  await accessRequestThrottle.recordFailedAttempt(ip, request);
+
+  try {
+    const storage = await storagePromise;
+    await storage.createHelpRequest({
+      id: crypto.randomUUID(),
+      userId: ACCESS_REQUEST_USER_ID,
+      username: ACCESS_REQUEST_USER_ID,
+      subject: `Invite request from ${maskEmail(email)}`,
+      message: `Email: ${email}\n\n${reason || 'No additional details provided.'}`,
+      createdAt: new Date().toISOString()
+    });
+  } catch (err) {
+    if (isStorageUnavailableError(err)) {
+      return { status: 503, error: 'The service is temporarily unavailable. Please try again later.', email, reason };
+    }
+    console.error('[signup] Unable to store the access request.', { code: err.code, message: err.message });
+    return { status: 500, error: 'Unable to submit the request. Please try again later.', email, reason };
+  }
+
+  return { status: 200, message: genericMessage };
+}
 
 registerHttp('dashboard', {
   methods: ['GET'],
