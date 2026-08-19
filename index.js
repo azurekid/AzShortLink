@@ -473,9 +473,6 @@ registerHttp('accessRequestApi', {
   }
 });
 
-// Bounds ACCESS_REQUEST_* audit writes so a flood of anonymous submissions can't fill the table.
-const accessRequestAuditLimiter = createAuditWriteLimiter({ maxEvents: LOGIN_MAX_ATTEMPTS, windowMs: LOGIN_LOCKOUT_MS });
-
 async function processAccessRequest(request, { requireJson = false } = {}) {
   const genericMessage = 'Thanks. Your request has been received; an administrator will email you an invite link if it is approved.';
   const ip = getClientIp(request);
@@ -977,6 +974,8 @@ function dashboardConfigErrorResponse() {
 // Best-effort brute-force throttle per client IP (resets on cold start; not a substitute for a WAF).
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+// Bounds ACCESS_REQUEST_* audit writes so a flood of anonymous submissions can't fill the table.
+const accessRequestAuditLimiter = createAuditWriteLimiter({ maxEvents: LOGIN_MAX_ATTEMPTS, windowMs: LOGIN_LOCKOUT_MS });
 
 function getClientIp(request) {
   return request.headers.get('x-azure-clientip') || (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
