@@ -277,6 +277,7 @@ ${renderDocumentHead('AzShortLink Dashboard')}
     loadStats();
     loadMyInvite();
   </script>
+  <script src="/assets/js/support-button.js" defer></script>
 </body>
 </html>`;
 }

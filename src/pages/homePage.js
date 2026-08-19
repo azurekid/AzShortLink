@@ -117,6 +117,8 @@ function renderHomePage(options = {}) {
   <footer class="site-footer">
     <p>AzShortLink &middot; No ads &middot; No trackers &middot; <a href="/api">API documentation</a></p>
   </footer>
+
+  <script src="/assets/js/support-button.js" defer></script>
 </body>
 </html>
 `;

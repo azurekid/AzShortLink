@@ -58,6 +58,7 @@ function renderForgotPasswordPage(options = {}) {
 <body>
   ${message ? `<div class="auth-panel">${body}</div>` : `<form id="forgot-password-form" method="POST" action="${resetToken ? '/dashboard/reset-password' : '/dashboard/forgot-password'}" autocomplete="off">${body}</form>
   <script src="/assets/js/forgot-password.js"></script>`}
+  <script src="/assets/js/support-button.js" defer></script>
 </body>
 </html>`;
 }

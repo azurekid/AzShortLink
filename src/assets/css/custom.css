@@ -44,3 +44,25 @@
   color:var(--accent);
   text-shadow:0 0 10px rgba(0,212,255,.45);
 }
+
+/* Floating "buy me a coffee" support link, injected by /assets/js/support-button.js. */
+.bmc-fab {
+  position:fixed; right:20px; bottom:20px; z-index:1200;
+  display:inline-flex; align-items:center; gap:8px;
+  padding:10px 16px; border-radius:999px;
+  background:var(--card,#1a1a2e); border:1px solid var(--border,#2d2d44);
+  color:var(--text,#e2e8f0); text-decoration:none; font-weight:700; font-size:.85rem;
+  box-shadow:0 4px 24px rgba(0,0,0,.45);
+  transition:all var(--ease,220ms cubic-bezier(.4,0,.2,1));
+}
+.bmc-fab:hover {
+  border-color:var(--accent,#00d4ff); color:var(--accent,#00d4ff);
+  box-shadow:var(--glow,0 0 24px rgba(0,212,255,.22)), 0 0 30px rgba(0,255,0,.04);
+  transform:translateY(-2px);
+  animation:headerShake .3s ease-in-out;
+}
+.bmc-fab-emoji { font-size:1.05rem; }
+@media (max-width:480px) {
+  .bmc-fab-text { display:none; }
+  .bmc-fab { padding:10px; }
+}

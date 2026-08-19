@@ -40,6 +40,7 @@ function renderLoginPage(options = {}) {
   </form>
   <script src="/passkeys.js"></script>
   <script src="/assets/js/login.js"></script>
+  <script src="/assets/js/support-button.js" defer></script>
 </body>
 </html>`;
 }

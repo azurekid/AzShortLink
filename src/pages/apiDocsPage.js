@@ -32,6 +32,7 @@ ${HEAD_ASSETS}
   </main>
   <script src="/vendor/swagger/swagger-ui-bundle.js"></script>
   <script src="/assets/js/api-docs.js"></script>
+  <script src="/assets/js/support-button.js" defer></script>
 </body>
 </html>`;
 }

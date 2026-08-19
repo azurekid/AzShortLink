@@ -58,6 +58,7 @@ function renderSignupPage(options = {}) {
     ? `<form id="signup-form" method="POST" action="/dashboard/signup" autocomplete="off">${body}</form>
   <script src="/assets/js/signup.js"></script>`
     : `<div class="auth-panel">${body}</div>`}
+  <script src="/assets/js/support-button.js" defer></script>
 </body>
 </html>`;
 }

@@ -71,6 +71,7 @@ ${plans.map((plan) => renderPlanCard(plan, currentPlanId)).join('\n')}
   </main>
   <footer class="footer">&copy; 2026 AzShortLink. All rights reserved.</footer>
   <script src="/assets/js/pricing.js"></script>
+  <script src="/assets/js/support-button.js" defer></script>
 </body>
 </html>`;
 }
