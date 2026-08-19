@@ -1,0 +1,113 @@
+'use strict';
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+function renderNotice({ message = '', error = '' }) {
+  if (error) return `<p class="form-notice error" role="alert">${escapeHtml(error)}</p>`;
+  if (message) return `<p class="form-notice" role="status">${escapeHtml(message)}</p>`;
+  return '';
+}
+
+function renderHomePage(options = {}) {
+  const email = escapeHtml(options.email || '');
+  const reason = escapeHtml(options.reason || '');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="AzShortLink is an ad-free, tracker-free URL shortener with a private dashboard, analytics you own, QR codes and an API." />
+  <title>AzShortLink — Ad-free, tracker-free short links</title>
+  <link rel="icon" type="image/svg+xml" href="https://azurehacking.com/images/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" />
+  <link rel="stylesheet" href="/assets/css/home.css" />
+  <link rel="stylesheet" href="/assets/css/custom.css" />
+</head>
+<body>
+  <nav class="navbar" aria-label="Main navigation">
+    <a class="brand" href="/">AzShortLink <span>// URL service</span></a>
+    <div class="nav-links">
+      <a class="nav-link" href="/pricing">Pricing</a>
+      <a class="nav-link" href="/api">API</a>
+      <a class="nav-link" href="/dashboard/login">Sign in</a>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <p class="eyebrow">Ad-free &middot; No trackers &middot; No profiling</p>
+      <h1>Short links that keep your audience to yourself.</h1>
+      <p class="lead">
+        AzShortLink turns long URLs into short, memorable links on your own domain. Every redirect is
+        a plain HTTP 302 &mdash; no interstitial page, no advertising, no third-party scripts and no
+        cross-site tracking cookies.
+      </p>
+      <div class="actions">
+        <a class="primary" href="#request-access">Request access</a>
+        <a class="secondary" href="/dashboard/login">Sign in</a>
+      </div>
+    </section>
+
+    <section class="features" aria-label="What AzShortLink offers">
+      <article class="feature">
+        <h2>No ads, ever</h2>
+        <p>Visitors are redirected straight to the destination. There is no landing page, no countdown and nothing to skip.</p>
+      </article>
+      <article class="feature">
+        <h2>No third-party trackers</h2>
+        <p>No analytics SDKs, advertising pixels or social widgets are loaded. The redirect response contains nothing but the destination.</p>
+      </article>
+      <article class="feature">
+        <h2>Analytics you own</h2>
+        <p>Click counts, coarse geo lookup and referrer data stay in your own Azure Storage account and are only visible to you.</p>
+      </article>
+      <article class="feature">
+        <h2>Privacy by default</h2>
+        <p>No visitor cookies are set on redirects, identifiers are hashed before storage and a strict Content-Security-Policy is enforced.</p>
+      </article>
+      <article class="feature">
+        <h2>QR codes and an API</h2>
+        <p>Generate a QR code for any link and automate everything through a documented REST API with per-account keys.</p>
+      </article>
+      <article class="feature">
+        <h2>Invite-only accounts</h2>
+        <p>Accounts are created by invitation, which keeps the service free of spam and abusive redirects.</p>
+      </article>
+    </section>
+
+    <section class="request" id="request-access" aria-labelledby="request-heading">
+      <h2 id="request-heading">Request an invite</h2>
+      <p>
+        AzShortLink is invite-only. Leave your email address and a short note about how you plan to use
+        the service, and an administrator will send you an invite link. Your address is used for that
+        invite only and is never shared or used for marketing.
+      </p>
+      ${renderNotice(options)}
+      <form method="post" action="/" class="request-form">
+        <label for="request-email">Email address</label>
+        <input id="request-email" name="email" type="email" autocomplete="email" required maxlength="254" value="${email}" />
+
+        <label for="request-reason">How will you use AzShortLink? (optional)</label>
+        <textarea id="request-reason" name="reason" rows="4" maxlength="1000">${reason}</textarea>
+
+        <button type="submit">Send request</button>
+      </form>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>AzShortLink &middot; No ads &middot; No trackers &middot; <a href="/api">API documentation</a></p>
+  </footer>
+</body>
+</html>
+`;
+}
+
+module.exports = { renderHomePage };

@@ -15,6 +15,7 @@ const { renderForgotPasswordPage } = require('./src/pages/forgotPasswordPage');
 const { renderSignupPage } = require('./src/pages/signupPage');
 const { renderNotFoundPage } = require('./src/pages/notFoundPage');
 const { renderPricingPage } = require('./src/pages/pricingPage');
+const { renderHomePage } = require('./src/pages/homePage');
 const {
   verifyCredentials,
   createSessionToken,
@@ -195,6 +196,18 @@ function configurationErrorResponse() {
     jsonBody: {
       error: 'Service temporarily unavailable.'
     }
+  };
+}
+
+// Invite requests are filed as help requests under a synthetic owner so administrators see them
+// in the existing queue without an account having to exist yet.
+const ACCESS_REQUEST_USER_ID = 'access-request';
+
+function landingPageResponse({ status = 200, message = '', error = '', email = '', reason = '' } = {}) {
+  return {
+    status,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS },
+    body: renderHomePage({ message, error, email, reason })
   };
 }
 
@@ -414,18 +427,73 @@ registerHttp('shortenUrl', {
   }
 });
 
+// The root is a public landing page and is deliberately a separate trigger from `redirectUrl`:
+// hitting `/` must never run short-link resolution, quota accounting or click tracking.
 registerHttp('root', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: '',
-  handler: async () => {
-    return {
-      status: 302,
-      headers: {
-        location: '/dashboard/login',
-        'cache-control': 'no-store'
+  handler: async () => landingPageResponse()
+});
+
+registerHttp('accessRequestSubmit', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: '',
+  handler: async (request) => {
+    const genericMessage = 'Thanks. Your request has been received; an administrator will email you an invite link if it is approved.';
+    const ip = getClientIp(request);
+    if (await accessRequestThrottle.isLockedOut(ip)) {
+      await accessRequestThrottle.recordLockout(request);
+      return landingPageResponse({ status: 429, error: 'Too many requests. Please try again later.' });
+    }
+
+    const contentType = request.headers.get('content-type') || '';
+    let email = '';
+    let reason = '';
+    try {
+      if (contentType.includes('application/json')) {
+        const body = await request.json();
+        email = normalizeEmail(body.email);
+        reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      } else {
+        const form = new URLSearchParams(await request.text());
+        email = normalizeEmail(form.get('email'));
+        reason = (form.get('reason') || '').trim();
       }
-    };
+    } catch {
+      return landingPageResponse({ status: 400, error: 'Unable to read the request. Please try again.' });
+    }
+
+    if (!email || !EMAIL_PATTERN.test(email) || email.length > 254) {
+      return landingPageResponse({ status: 400, error: 'Enter a valid email address.', reason });
+    }
+    if (reason.length > 1000) {
+      return landingPageResponse({ status: 400, error: 'Keep the note under 1000 characters.', email });
+    }
+
+    // Every submission counts toward the throttle; there is no "success" that clears it.
+    await accessRequestThrottle.recordFailedAttempt(ip, request);
+
+    try {
+      const storage = await storagePromise;
+      await storage.createHelpRequest({
+        id: crypto.randomUUID(),
+        userId: ACCESS_REQUEST_USER_ID,
+        username: ACCESS_REQUEST_USER_ID,
+        subject: `Invite request from ${maskEmail(email)}`,
+        message: `Email: ${email}\n\n${reason || 'No additional details provided.'}`,
+        createdAt: new Date().toISOString()
+      });
+    } catch (err) {
+      if (isStorageUnavailableError(err)) {
+        return landingPageResponse({ status: 503, error: 'The service is temporarily unavailable. Please try again later.', email, reason });
+      }
+      console.error('[signup] Unable to store the access request.', { code: err.code, message: err.message });
+      return landingPageResponse({ status: 500, error: 'Unable to submit the request. Please try again later.', email, reason });
+    }
+
+    return landingPageResponse({ message: genericMessage });
   }
 });
 
@@ -469,6 +537,7 @@ registerHttp('redirectUrl', {
     const service = await servicePromise;
     const storage = await storagePromise;
     const code = request.params.code;
+    if (!code) return landingPageResponse();
     const location = lookupGeoLocation(getClientIp(request));
     let result;
 
@@ -970,6 +1039,8 @@ const passwordResetThrottle = createAttemptThrottle('password-reset');
 const passkeyThrottle = createAttemptThrottle('passkey');
 // Invite codes are bearer tokens for account creation, so guessing them is throttled too.
 const signupThrottle = createAttemptThrottle('signup');
+// The landing page invite form is fully anonymous, so it gets its own budget per source IP.
+const accessRequestThrottle = createAttemptThrottle('access-request');
 // Audit writes have their own budget so repeated anonymous failures cannot fill the table.
 // This budget intentionally does not reset after a successful signup.
 const signupAuditLimiter = createAuditWriteLimiter({ maxEvents: LOGIN_MAX_ATTEMPTS, windowMs: LOGIN_LOCKOUT_MS });
