@@ -18,7 +18,7 @@ const PLANS = Object.freeze({
   pro: Object.freeze({
     id: 'pro',
     name: 'Pro',
-    priceEurPerMonth: 4.99,
+    priceEurPerMonth: 2.49,
     linksPerDay: 100,
     redirectsPerDay: 10000,
     apiRequestsPerMinute: 600,
@@ -27,7 +27,7 @@ const PLANS = Object.freeze({
   business: Object.freeze({
     id: 'business',
     name: 'Business',
-    priceEurPerMonth: 12.99,
+    priceEurPerMonth: 6.99,
     linksPerDay: 1000,
     redirectsPerDay: 50000,
     apiRequestsPerMinute: 3000,

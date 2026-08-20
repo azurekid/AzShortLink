@@ -48,8 +48,10 @@ function renderPricingPage({ currentPlanId = '', signedIn = false } = {}) {
 </head>
 <body>
   <nav class="navbar" aria-label="Main navigation">
-    <a class="brand" href="/dashboard/login">AzShortLink <span>// URL service</span></a>
-    <a class="nav-link" href="/dashboard">Dashboard</a>
+    <a class="brand" href="https://stazshortlinkhome.z6.web.core.windows.net/">AzShortLink <span>// URL service</span></a>
+    ${signedIn
+      ? '<a class="nav-link" href="/dashboard">Dashboard</a>'
+      : '<a class="nav-link" href="/dashboard/login">Sign in</a>'}
   </nav>
   <main class="pricing-page">
     <header class="pricing-header">
